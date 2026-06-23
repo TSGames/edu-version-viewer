@@ -9,22 +9,63 @@ Guidance for Claude Code when working in this repository.
 
 ## Project overview
 
-`edu-version-viewer` is a dependency-free Node.js app that polls edu-sharing
-`_about` endpoints on a cron schedule and shows version, last sync,
-services/modules, features and plugins. Node built-ins only — no runtime
-dependencies, no build step.
+`edu-version-viewer` is a small, **dependency-free** Node.js app (Node ≥ 20,
+ESM, built-ins only — no runtime deps, no build step). It polls edu-sharing
+`_about` endpoints on a cron schedule and shows, per endpoint: version, last
+sync, status, services/modules, features and plugins. The full raw `_about`
+response is stored so nothing is lost.
 
-- `src/server.js` — HTTP server: static frontend + small JSON API, HTTP Basic
-  auth (admin/viewer roles via env).
-- `src/fetcher.js` — fetches and summarizes `_about` responses.
-- `src/store.js` — JSON config persistence in `DATA_DIR` (default `/data`).
-- `src/cron.js` — minimal cron scheduler (`CRON_SCHEDULE`).
-- `src/url.js` — normalizes input into an `_about` URL.
-- `src/auth.js` — resolves an Authorization header to a role.
-- `public/` — vanilla frontend (`index.html`, `app.js`, `style.css`).
+The whole UI sits behind HTTP Basic auth with two roles: **admin**
+(read + write) and **viewer** (read-only).
+
+## Layout
+
+Backend (`src/`):
+- `server.js` — HTTP server: serves the static frontend and a JSON API under
+  `/api/*`. Enforces roles, handles add/delete/refresh of endpoints.
+- `fetcher.js` — fetches an `_about` URL (http/https, redirects, timeout) and
+  `summarize()`s it into `version`, `renderservice`, `rs2`, `services`,
+  `features`, `plugins`, `raw`.
+- `store.js` — persistence: a single `config.json` in `DATA_DIR`
+  (default `/data`), atomic write via temp file + rename.
+- `cron.js` — minimal 5-field cron parser + scheduler (`parseCron`,
+  `matches`, `scheduleCron`). Evaluates once per minute.
+- `url.js` — `normalizeAboutUrl()` turns pasted input into an
+  `/edu-sharing/rest/_about` URL; `deriveLabel()` for a default label.
+- `auth.js` — HTTP Basic parsing + constant-time role resolver.
+
+Frontend (`public/`, vanilla JS, no framework/build):
+- `index.html` — header, admin panel (add/refresh, admins only), sort toolbar,
+  card grid.
+- `app.js` — fetches `/api/*`, renders cards, admin actions; sorting and
+  open-section persistence across the 30s auto-refresh.
+- `style.css` — light theme; all colors are CSS variables in `:root`.
+
+Other: `Dockerfile`, `docker-compose*.yml`, `.github/workflows/ci.yml`
+(tests + image build), tests in `test/` (`node --test`).
+
+## Behavior notes / conventions
+
+- **Status resilience**: a single failed fetch does not flip a card to
+  `error`. Each endpoint has a `failCount`; it only becomes `error` after
+  **more than** `FAIL_THRESHOLD` (default 2) consecutive failures, and resets
+  on success. Latest error kept in `lastError`.
+- **Sorting**: cards can be sorted by Label, URL, Status, or Version. Version
+  sorts numerically (`10.0` after `9.0`); unknown versions last; status groups
+  problems first.
+- **RS2 pill**: when `renderingService2 != null` in the response, a green
+  `RS2` pill is shown in the card badges.
+- **features/plugins** chips render only the object `id`, not the raw JSON.
+- The periodic refresh re-renders all cards but preserves which `<details>`
+  the user had open (keyed by endpoint id + summary label; cards carry a
+  `data-id`).
+- UI text is German.
 
 ## Commands
 
-- Start: `npm start` (env: `PORT`, `ADMIN_PASSWORD`, `VIEWER_PASSWORD`,
-  `DATA_DIR`, `CRON_SCHEDULE`).
+- Start: `npm start`
+  - Env: `PORT` (default 3000), `ADMIN_USER`/`ADMIN_PASSWORD`,
+    `VIEWER_USER`/`VIEWER_PASSWORD`, `DATA_DIR` (default `/data`),
+    `CRON_SCHEDULE` (default `*/15 * * * *`), `REQUEST_TIMEOUT_MS`,
+    `FAIL_THRESHOLD`. An account with an empty password is disabled.
 - Test: `npm test` (`node --test`).
