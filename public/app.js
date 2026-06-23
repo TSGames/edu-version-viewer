@@ -2,33 +2,23 @@
 
 const els = {
   cards: document.getElementById('cards'),
-  adminToggle: document.getElementById('admin-toggle'),
   adminPanel: document.getElementById('admin-panel'),
-  loginRow: document.getElementById('login-row'),
-  adminUser: document.getElementById('admin-user'),
-  adminPass: document.getElementById('admin-pass'),
-  loginBtn: document.getElementById('login-btn'),
-  loginStatus: document.getElementById('login-status'),
-  adminActions: document.getElementById('admin-actions'),
   newUrl: document.getElementById('new-url'),
   newLabel: document.getElementById('new-label'),
   addBtn: document.getElementById('add-btn'),
   refreshAllBtn: document.getElementById('refresh-all-btn'),
-  logoutBtn: document.getElementById('logout-btn'),
   adminMsg: document.getElementById('admin-msg'),
   cronInfo: document.getElementById('cron-info'),
+  whoami: document.getElementById('whoami'),
 };
 
-let authHeader = sessionStorage.getItem('authHeader') || null;
-
-function authHeaders(extra) {
-  const h = Object.assign({}, extra);
-  if (authHeader) h['Authorization'] = authHeader;
-  return h;
-}
+// The browser handles HTTP Basic auth (native login dialog) and attaches the
+// Authorization header to every same-origin request automatically, so the
+// frontend never touches credentials. We only need to know our role.
+let role = null;
 
 function isAdmin() {
-  return Boolean(authHeader);
+  return role === 'admin';
 }
 
 // ---------- formatting helpers ----------
@@ -188,32 +178,22 @@ function setAdminMsg(msg, isError) {
   els.adminMsg.className = isError ? 'error-text' : 'muted';
 }
 
-async function login() {
-  const user = els.adminUser.value || 'admin';
-  const pass = els.adminPass.value || '';
-  const header = 'Basic ' + btoa(user + ':' + pass);
-  els.loginStatus.textContent = 'prüfe…';
+// Determine our role from the server. The browser has already supplied Basic
+// credentials (via its native dialog) to load this page, so they ride along.
+async function loadRole() {
   try {
-    const res = await fetch('/api/me', { headers: { Authorization: header } });
+    const res = await fetch('/api/me');
     if (res.ok) {
-      authHeader = header;
-      sessionStorage.setItem('authHeader', header);
-      els.loginStatus.textContent = '';
-      updateAdminUi();
-      loadEndpoints();
-    } else {
-      els.loginStatus.textContent = 'Anmeldung fehlgeschlagen';
+      const data = await res.json();
+      role = data.role;
+      els.whoami.textContent = `Angemeldet als ${data.user} (${
+        role === 'admin' ? 'Admin' : 'nur Lesen'
+      })`;
     }
   } catch {
-    els.loginStatus.textContent = 'Fehler bei der Anmeldung';
+    /* ignore — page already required auth to load */
   }
-}
-
-function logout() {
-  authHeader = null;
-  sessionStorage.removeItem('authHeader');
   updateAdminUi();
-  loadEndpoints();
 }
 
 async function addEndpoint() {
@@ -227,7 +207,7 @@ async function addEndpoint() {
   try {
     const res = await fetch('/api/endpoints', {
       method: 'POST',
-      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url, label }),
     });
     const data = await res.json();
@@ -249,7 +229,6 @@ async function refreshOne(id) {
   try {
     const res = await fetch('/api/endpoints/' + encodeURIComponent(id) + '/refresh', {
       method: 'POST',
-      headers: authHeaders(),
     });
     if (res.ok) {
       setAdminMsg('aktualisiert');
@@ -265,7 +244,7 @@ async function refreshOne(id) {
 async function refreshAll() {
   setAdminMsg('aktualisiere alle…');
   try {
-    const res = await fetch('/api/refresh', { method: 'POST', headers: authHeaders() });
+    const res = await fetch('/api/refresh', { method: 'POST' });
     if (res.ok) {
       setAdminMsg('alle aktualisiert');
       loadEndpoints();
@@ -282,7 +261,6 @@ async function removeEndpoint(id, label) {
   try {
     const res = await fetch('/api/endpoints/' + encodeURIComponent(id), {
       method: 'DELETE',
-      headers: authHeaders(),
     });
     if (res.ok) {
       setAdminMsg('gelöscht');
@@ -296,31 +274,22 @@ async function removeEndpoint(id, label) {
 }
 
 function updateAdminUi() {
-  if (isAdmin()) {
-    els.loginRow.classList.add('hidden');
-    els.adminActions.classList.remove('hidden');
-  } else {
-    els.loginRow.classList.remove('hidden');
-    els.adminActions.classList.add('hidden');
-  }
+  // Admin panel (add/refresh) only for admins; viewers see read-only.
+  els.adminPanel.classList.toggle('hidden', !isAdmin());
+  loadEndpoints(); // re-render so per-card admin buttons appear/disappear
 }
 
 // ---------- wiring ----------
 
-els.adminToggle.addEventListener('click', () => {
-  els.adminPanel.classList.toggle('hidden');
-});
-els.loginBtn.addEventListener('click', login);
-els.adminPass.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') login();
-});
-els.logoutBtn.addEventListener('click', logout);
 els.addBtn.addEventListener('click', addEndpoint);
 els.newLabel.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') addEndpoint();
 });
+els.newUrl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') addEndpoint();
+});
 els.refreshAllBtn.addEventListener('click', refreshAll);
 
-updateAdminUi();
+loadRole();
 loadEndpoints();
 setInterval(loadEndpoints, 30000); // auto-refresh list
