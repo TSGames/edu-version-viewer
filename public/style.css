@@ -298,6 +298,13 @@ summary {
   color: var(--muted);
 }
 
+.edit-field input {
+  /* In this column-flex container, the global `flex: 1 1 200px` would turn
+     200px into the input's height. Reset it so the field stays one line tall. */
+  flex: none;
+  width: 100%;
+}
+
 .edit-form textarea {
   font: inherit;
   resize: vertical;
