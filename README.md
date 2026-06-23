@@ -80,6 +80,13 @@ docker compose -f docker-compose.example.yml up -d
 
 In Produktion das Image am besten auf eine konkrete Version pinnen statt `:latest`.
 
+### Portainer (ohne .env)
+
+Für Portainer-Stacks gibt es [`docker-compose.portainer.yml`](./docker-compose.portainer.yml):
+eine self-contained Variante **ohne `.env`-Variablen** und mit einem von Portainer
+verwalteten Named Volume. Inhalt in Portainer → **Stacks → Add stack → Web editor**
+einfügen und die Werte (vor allem `ADMIN_PASSWORD`) direkt im Editor anpassen.
+
 ## Configuration (environment variables)
 
 | Variable             | Default          | Purpose                                   |
