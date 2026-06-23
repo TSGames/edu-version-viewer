@@ -185,6 +185,7 @@ async function handleApi(req, res, urlPath) {
       services: [],
       features: null,
       plugins: null,
+      failCount: 0,
       raw: null,
     };
     await fetchEndpoint(endpoint); // fetch immediately so data shows up
