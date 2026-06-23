@@ -8,6 +8,12 @@ const TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS || 10000);
 const MAX_REDIRECTS = 3;
 const USER_AGENT = 'edu-version-viewer/1.0';
 
+// Tolerate a few transient fetch failures before flagging an endpoint as
+// errored, so a single hiccup doesn't immediately turn the card red. Only
+// after MORE than this many consecutive failures does the status flip to
+// 'error'. A successful fetch resets the counter.
+const FAIL_THRESHOLD = Number(process.env.FAIL_THRESHOLD || 2);
+
 function httpGetJson(url, redirectsLeft = MAX_REDIRECTS) {
   return new Promise((resolve, reject) => {
     let target;
@@ -97,6 +103,8 @@ export function summarize(raw) {
       raw && raw.version && raw.version.renderservice != null
         ? String(raw.version.renderservice)
         : null,
+    // Whether a second rendering service (RS2) is wired up.
+    rs2: Boolean(raw && raw.renderingService2 != null),
     services: extractServices(raw),
     features: raw && raw.features != null ? raw.features : null,
     plugins: raw && raw.plugins != null ? raw.plugins : null,
@@ -113,11 +121,19 @@ export async function fetchEndpoint(endpoint) {
       lastSync: now,
       lastStatus: 'ok',
       error: null,
+      failCount: 0,
     });
   } catch (err) {
+    const message = err && err.message ? err.message : String(err);
+    endpoint.failCount = (endpoint.failCount || 0) + 1;
     endpoint.lastSync = now;
-    endpoint.lastStatus = 'error';
-    endpoint.error = err && err.message ? err.message : String(err);
+    // Keep the last known-good status until failures exceed the threshold.
+    // The most recent error is always recorded for diagnostics.
+    endpoint.lastError = message;
+    if (endpoint.failCount > FAIL_THRESHOLD) {
+      endpoint.lastStatus = 'error';
+      endpoint.error = message;
+    }
   }
   return endpoint;
 }

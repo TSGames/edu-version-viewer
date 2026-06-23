@@ -35,12 +35,17 @@
       </div>
     </section>
 
-    <main id="cards"></main>
+    <div class="toolbar">
+      <label for="sort-by" class="muted">Sortieren nach</label>
+      <select id="sort-by">
+        <option value="label">Label</option>
+        <option value="url">URL</option>
+        <option value="status">Status</option>
+        <option value="version">Version</option>
+      </select>
+    </div>
 
-    <footer class="muted">
-      Speichert in <code>config.json</code> im gemounteten Volume · pollt
-      <code>/edu-sharing/rest/_about</code>
-    </footer>
+    <main id="cards"></main>
 
     <script src="/app.js"></script>
   </body>
