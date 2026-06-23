@@ -1,14 +1,23 @@
 :root {
-  --bg: #0f1420;
-  --panel: #1a2233;
-  --card: #1e2738;
-  --border: #2c3950;
-  --text: #e6ebf5;
-  --muted: #8a98b3;
-  --accent: #4f8cff;
-  --ok: #3ecf8e;
-  --err: #ff6b6b;
-  --pending: #f5b14c;
+  /* Light theme. All colors live here so the palette can be swapped in one place. */
+  --bg: #f4f6fa;
+  --panel: #ffffff;
+  --card: #ffffff;
+  --border: #d9e0ea;
+  --text: #1b2435;
+  --muted: #5f6c83;
+  --accent: #2f6fed;
+  --ok: #1f9d63;
+  --err: #d64545;
+  --pending: #c98a2b;
+
+  /* Component surfaces / accents (previously hard-coded). */
+  --subtle-bg: #eef2f8; /* inputs, badges, chips, inline code */
+  --code-bg: #f0f3f9; /* raw JSON <pre> blocks */
+  --accent-text: #ffffff; /* text on accent-colored buttons */
+  --secondary: #e2e8f2; /* secondary button background */
+  --secondary-text: #1b2435; /* secondary button text */
+  --version-text: #1f4fb0; /* version badge text */
 }
 
 * {
@@ -75,7 +84,7 @@ button {
 }
 
 input {
-  background: #11192a;
+  background: var(--subtle-bg);
   color: var(--text);
   flex: 1 1 200px;
   min-width: 140px;
@@ -83,14 +92,15 @@ input {
 
 button {
   background: var(--accent);
-  color: white;
+  color: var(--accent-text);
   border: none;
   cursor: pointer;
   font-weight: 600;
 }
 
 button.secondary {
-  background: #34405a;
+  background: var(--secondary);
+  color: var(--secondary-text);
 }
 
 button:hover {
@@ -131,7 +141,7 @@ button:hover {
 }
 
 .badge {
-  background: #11192a;
+  background: var(--subtle-bg);
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 0.15rem 0.6rem;
@@ -140,7 +150,7 @@ button:hover {
 
 .badge.version {
   border-color: var(--accent);
-  color: #cfe0ff;
+  color: var(--version-text);
 }
 
 .status {
@@ -198,7 +208,7 @@ summary {
 }
 
 .chip {
-  background: #11192a;
+  background: var(--subtle-bg);
   border: 1px solid var(--border);
   border-radius: 5px;
   padding: 0.1rem 0.45rem;
@@ -228,14 +238,14 @@ footer {
 pre.raw {
   max-height: 320px;
   overflow: auto;
-  background: #0b1120;
+  background: var(--code-bg);
   padding: 0.75rem;
   border-radius: 6px;
   font-size: 0.75rem;
 }
 
 code {
-  background: #11192a;
+  background: var(--subtle-bg);
   padding: 0.05rem 0.3rem;
   border-radius: 4px;
 }
