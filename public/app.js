@@ -87,6 +87,7 @@ function renderCard(e) {
     <div class="badges">
       <span class="badge version">Version: <strong>${escapeHtml(e.version || 'unbekannt')}</strong></span>
       ${e.renderservice ? `<span class="badge">Renderservice: ${escapeHtml(e.renderservice)}</span>` : ''}
+      ${e.rs2 ? '<span class="badge rs2">RS2</span>' : ''}
       <span class="badge">Services: ${services.length}</span>
     </div>
 

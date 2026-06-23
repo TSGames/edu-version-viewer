@@ -103,6 +103,8 @@ export function summarize(raw) {
       raw && raw.version && raw.version.renderservice != null
         ? String(raw.version.renderservice)
         : null,
+    // Whether a second rendering service (RS2) is wired up.
+    rs2: Boolean(raw && raw.renderingService2 != null),
     services: extractServices(raw),
     features: raw && raw.features != null ? raw.features : null,
     plugins: raw && raw.plugins != null ? raw.plugins : null,

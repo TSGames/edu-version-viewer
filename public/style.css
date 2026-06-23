@@ -170,6 +170,13 @@ button:hover {
   color: var(--version-text);
 }
 
+.badge.rs2 {
+  background: var(--ok);
+  border-color: var(--ok);
+  color: var(--accent-text);
+  font-weight: 700;
+}
+
 .status {
   display: inline-flex;
   align-items: center;

@@ -182,6 +182,7 @@ async function handleApi(req, res, urlPath) {
       error: null,
       version: null,
       renderservice: null,
+      rs2: false,
       services: [],
       features: null,
       plugins: null,
