@@ -1,0 +1,17 @@
+services:
+  edu-version-viewer:
+    build: .
+    image: edu-version-viewer
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: "3000"
+      DATA_DIR: "/data"
+      ADMIN_USER: "${ADMIN_USER:-admin}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:?set ADMIN_PASSWORD in your environment or .env}"
+      CRON_SCHEDULE: "${CRON_SCHEDULE:-*/15 * * * *}"
+      REQUEST_TIMEOUT_MS: "${REQUEST_TIMEOUT_MS:-10000}"
+    volumes:
+      # Persisted config.json lives here.
+      - ./data:/data
+    restart: unless-stopped

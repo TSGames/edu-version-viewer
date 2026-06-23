@@ -1,0 +1,241 @@
+:root {
+  --bg: #0f1420;
+  --panel: #1a2233;
+  --card: #1e2738;
+  --border: #2c3950;
+  --text: #e6ebf5;
+  --muted: #8a98b3;
+  --accent: #4f8cff;
+  --ok: #3ecf8e;
+  --err: #ff6b6b;
+  --pending: #f5b14c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+h1 {
+  font-size: 1.25rem;
+  margin: 0;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+main {
+  padding: 1.5rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.panel {
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  padding: 1rem 1.5rem;
+}
+
+.row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+input,
+button {
+  font: inherit;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+input {
+  background: #11192a;
+  color: var(--text);
+  flex: 1 1 200px;
+  min-width: 140px;
+}
+
+button {
+  background: var(--accent);
+  color: white;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+button.secondary {
+  background: #34405a;
+}
+
+button:hover {
+  filter: brightness(1.1);
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem;
+}
+
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.card-title {
+  font-weight: 700;
+  font-size: 1.05rem;
+  word-break: break-word;
+}
+
+.card-url {
+  font-size: 0.8rem;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.badges {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0.6rem 0;
+}
+
+.badge {
+  background: #11192a;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+  font-size: 0.8rem;
+}
+
+.badge.version {
+  border-color: var(--accent);
+  color: #cfe0ff;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.dot.ok {
+  background: var(--ok);
+}
+.dot.error {
+  background: var(--err);
+}
+.dot.pending {
+  background: var(--pending);
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.error-text {
+  color: var(--err);
+  font-size: 0.85rem;
+  word-break: break-word;
+}
+
+details {
+  margin-top: 0.6rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.5rem;
+}
+
+summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.5rem;
+}
+
+.chip {
+  background: #11192a;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.75rem;
+}
+
+.card-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.card-actions button {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+}
+
+.hidden {
+  display: none !important;
+}
+
+footer {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
+pre.raw {
+  max-height: 320px;
+  overflow: auto;
+  background: #0b1120;
+  padding: 0.75rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+}
+
+code {
+  background: #11192a;
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+}

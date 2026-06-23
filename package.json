@@ -1,0 +1,15 @@
+{
+  "name": "edu-version-viewer",
+  "version": "1.0.0",
+  "description": "Simple dependency-free viewer that polls edu-sharing _about endpoints and shows version, last sync, services/modules and features.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "license": "MIT"
+}

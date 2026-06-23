@@ -1,0 +1,24 @@
+# Beispiel-Compose für die Produktion: zieht das veröffentlichte Image aus
+# der GitHub Container Registry statt es lokal zu bauen.
+#
+#   docker compose -f docker-compose.example.yml up -d
+#
+# Voraussetzung: ADMIN_PASSWORD setzen (z. B. via .env, siehe .env.example).
+# Tipp: in Produktion das Image auf eine konkrete Version pinnen, z. B.
+#   ghcr.io/tsgames/edu-version-viewer:9.0   statt   :latest
+services:
+  edu-version-viewer:
+    image: ghcr.io/tsgames/edu-version-viewer:latest
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: "3000"
+      DATA_DIR: "/data"
+      ADMIN_USER: "${ADMIN_USER:-admin}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:?set ADMIN_PASSWORD in your environment or .env}"
+      CRON_SCHEDULE: "${CRON_SCHEDULE:-*/15 * * * *}"
+      REQUEST_TIMEOUT_MS: "${REQUEST_TIMEOUT_MS:-10000}"
+    volumes:
+      # Persistierte config.json liegt hier (gemountetes Volume).
+      - ./data:/data
+    restart: unless-stopped
