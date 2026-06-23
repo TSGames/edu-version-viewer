@@ -80,11 +80,6 @@ function renderCard(e) {
     : 'noch nie';
 
   const services = Array.isArray(e.services) ? e.services : [];
-  const servicesHtml = services.length
-    ? `<div class="chips">${services
-        .map((s) => `<span class="chip">${escapeHtml(s)}</span>`)
-        .join('')}</div>`
-    : '<div class="muted">keine Services gemeldet</div>';
 
   const featuresHtml = renderExtra('Features', e.features);
   const pluginsHtml = renderExtra('Plugins', e.plugins);
@@ -100,18 +95,13 @@ function renderCard(e) {
 
     <div class="badges">
       <span class="badge version">Version: <strong>${escapeHtml(e.version || 'unbekannt')}</strong></span>
-      ${e.renderservice ? `<span class="badge">Renderservice: ${escapeHtml(e.renderservice)}</span>` : ''}
-      ${e.rs2 ? '<span class="badge rs2">RS2</span>' : ''}
+      ${e.rs2 ? '<span class="badge rs2">RS2</span>' : '<span class="badge">RS1</span>'}
       <span class="badge">Services: ${services.length}</span>
     </div>
 
     <div class="muted">Letzter Abgleich: ${escapeHtml(lastSync)}</div>
     ${e.error ? `<div class="error-text">Fehler: ${escapeHtml(e.error)}</div>` : ''}
 
-    <details>
-      <summary>Services / Module (${services.length})</summary>
-      ${servicesHtml}
-    </details>
     ${featuresHtml}
     ${pluginsHtml}
     <details>
