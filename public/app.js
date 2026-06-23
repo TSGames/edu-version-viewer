@@ -57,6 +57,7 @@ function hostOf(url) {
 function renderCard(e) {
   const card = document.createElement('div');
   card.className = 'card';
+  card.dataset.id = e.id;
 
   const statusClass = e.lastStatus === 'ok' ? 'ok' : e.lastStatus === 'error' ? 'error' : 'pending';
   const lastSync = e.lastSync
@@ -153,10 +154,41 @@ function renderExtra(title, value) {
   return `<details><summary>${escapeHtml(title)}</summary>${inner}</details>`;
 }
 
+// The periodic refresh re-renders every card from scratch, which would
+// collapse any <details> the user has opened. Snapshot the open/closed state
+// (keyed by endpoint id + summary label) before re-rendering and reapply it
+// afterwards so expanded sections stay open across refreshes.
+function captureOpenState() {
+  const state = {};
+  for (const card of els.cards.querySelectorAll('.card')) {
+    const id = card.dataset.id;
+    if (!id) continue;
+    const opens = {};
+    for (const d of card.querySelectorAll('details')) {
+      const summary = d.querySelector('summary');
+      opens[summary ? summary.textContent : ''] = d.open;
+    }
+    state[id] = opens;
+  }
+  return state;
+}
+
+function restoreOpenState(state) {
+  for (const card of els.cards.querySelectorAll('.card')) {
+    const opens = state[card.dataset.id];
+    if (!opens) continue;
+    for (const d of card.querySelectorAll('details')) {
+      const summary = d.querySelector('summary');
+      if (opens[summary ? summary.textContent : '']) d.open = true;
+    }
+  }
+}
+
 async function loadEndpoints() {
   try {
     const res = await fetch('/api/endpoints');
     const data = await res.json();
+    const openState = captureOpenState();
     els.cards.innerHTML = '';
     if (!data.endpoints || data.endpoints.length === 0) {
       els.cards.innerHTML =
@@ -166,6 +198,7 @@ async function loadEndpoints() {
     for (const e of data.endpoints) {
       els.cards.appendChild(renderCard(e));
     }
+    restoreOpenState(openState);
   } catch {
     els.cards.innerHTML = '<div class="error-text">Konnte Endpunkte nicht laden.</div>';
   }
