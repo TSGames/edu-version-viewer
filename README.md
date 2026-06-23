@@ -58,6 +58,28 @@ docker compose up --build
 
 The config file is persisted at `./data/config.json`.
 
+## Container Image (GHCR)
+
+CI veröffentlicht das Image automatisch in die **GitHub Container Registry**:
+
+```
+ghcr.io/tsgames/edu-version-viewer
+```
+
+Gepusht wird nur bei Push auf `main` (Tag `latest` + `sha-…`) und bei
+Versions-Tags `v*` (z. B. `v1.2.0` → `1.2.0`, `1.2`). Es wird der eingebaute
+`GITHUB_TOKEN` genutzt — keine zusätzlichen Secrets nötig.
+
+Das veröffentlichte Image direkt nutzen (ohne lokalen Build) — siehe
+[`docker-compose.example.yml`](./docker-compose.example.yml):
+
+```bash
+cp .env.example .env   # ADMIN_PASSWORD setzen
+docker compose -f docker-compose.example.yml up -d
+```
+
+In Produktion das Image am besten auf eine konkrete Version pinnen statt `:latest`.
+
 ## Configuration (environment variables)
 
 | Variable             | Default          | Purpose                                   |
