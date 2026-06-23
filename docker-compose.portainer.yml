@@ -1,0 +1,26 @@
+# Portainer-Stack: self-contained, OHNE .env-Datei.
+# Einfach in Portainer -> Stacks -> Add stack -> Web editor einfügen.
+# Werte unten direkt anpassen (vor allem ADMIN_PASSWORD!).
+services:
+  edu-version-viewer:
+    image: ghcr.io/tsgames/edu-version-viewer:latest
+    container_name: edu-version-viewer
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: "3000"
+      DATA_DIR: "/data"
+      ADMIN_USER: "admin"
+      ADMIN_PASSWORD: "bitte-aendern"
+      # Optionaler read-only Account (Passwort leer lassen = deaktiviert).
+      VIEWER_USER: "viewer"
+      VIEWER_PASSWORD: ""
+      CRON_SCHEDULE: "*/15 * * * *"
+      REQUEST_TIMEOUT_MS: "10000"
+    volumes:
+      # Named Volume -> von Portainer verwaltet, übersteht Neustarts/Updates.
+      - edu-version-viewer-data:/data
+    restart: unless-stopped
+
+volumes:
+  edu-version-viewer-data:

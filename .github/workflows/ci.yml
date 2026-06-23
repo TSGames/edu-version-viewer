@@ -39,8 +39,10 @@ jobs:
             fi
             sleep 1
           done
+          # Health is open; reading endpoints now requires authentication.
           curl -fsS http://localhost:3000/api/health
-          curl -fsS http://localhost:3000/api/endpoints
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/api/endpoints)" = "401"
+          curl -fsS -u admin:ci-secret http://localhost:3000/api/endpoints
           docker rm -f evv
 
   publish:

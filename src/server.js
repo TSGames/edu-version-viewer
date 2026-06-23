@@ -10,6 +10,7 @@ import { loadConfig, saveConfig, ensureConfig, getConfigPath } from './store.js'
 import { fetchEndpoint, refreshAll, refreshOne } from './fetcher.js';
 import { scheduleCron } from './cron.js';
 import { normalizeAboutUrl, deriveLabel } from './url.js';
+import { makeAuthenticator } from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -17,8 +18,18 @@ const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const PORT = Number(process.env.PORT || 3000);
 const ADMIN_USER = process.env.ADMIN_USER || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const VIEWER_USER = process.env.VIEWER_USER || 'viewer';
+const VIEWER_PASSWORD = process.env.VIEWER_PASSWORD || '';
 const CRON_SCHEDULE = process.env.CRON_SCHEDULE || '*/15 * * * *';
 const MAX_BODY = 1024 * 1024; // 1 MB
+
+// Resolves an Authorization header to a role: 'admin' | 'viewer' | null.
+const roleFor = makeAuthenticator({
+  adminUser: ADMIN_USER,
+  adminPassword: ADMIN_PASSWORD,
+  viewerUser: VIEWER_USER,
+  viewerPassword: VIEWER_PASSWORD,
+});
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -46,46 +57,31 @@ function summaryOf(e) {
   return rest;
 }
 
-function timingSafeEqual(a, b) {
-  const ba = Buffer.from(String(a));
-  const bb = Buffer.from(String(b));
-  if (ba.length !== bb.length) {
-    // Compare against self to keep timing roughly constant, then fail.
-    crypto.timingSafeEqual(ba, ba);
-    return false;
-  }
-  return crypto.timingSafeEqual(ba, bb);
-}
+const RANK = { viewer: 1, admin: 2 };
 
-function isAuthorized(req) {
-  if (!ADMIN_PASSWORD) return false; // refuse admin actions if no password set
-  const header = req.headers['authorization'] || '';
-  const m = /^Basic\s+(.+)$/i.exec(header);
-  if (!m) return false;
-  let decoded;
-  try {
-    decoded = Buffer.from(m[1], 'base64').toString('utf8');
-  } catch {
-    return false;
-  }
-  const idx = decoded.indexOf(':');
-  if (idx < 0) return false;
-  const user = decoded.slice(0, idx);
-  const pass = decoded.slice(idx + 1);
-  // Evaluate both to avoid short-circuit timing leaks.
-  const userOk = timingSafeEqual(user, ADMIN_USER);
-  const passOk = timingSafeEqual(pass, ADMIN_PASSWORD);
-  return userOk && passOk;
-}
-
-function requireAdmin(req, res) {
-  if (isAuthorized(req)) return true;
+function send401(res) {
   res.writeHead(401, {
     'WWW-Authenticate': 'Basic realm="edu-version-viewer", charset="UTF-8"',
     'Content-Type': 'application/json; charset=utf-8',
   });
   res.end(JSON.stringify({ error: 'Unauthorized' }));
-  return false;
+}
+
+// Enforce a minimum role. Returns true if allowed, otherwise writes the
+// appropriate 401/403 response and returns false.
+//   min = 'viewer' -> viewer or admin
+//   min = 'admin'  -> admin only
+function requireRole(req, res, min) {
+  const role = roleFor(req.headers['authorization'] || '');
+  if (!role) {
+    send401(res);
+    return false;
+  }
+  if (RANK[role] < RANK[min]) {
+    sendJson(res, 403, { error: 'Forbidden' });
+    return false;
+  }
+  return true;
 }
 
 function readBody(req) {
@@ -149,6 +145,7 @@ async function handleApi(req, res, urlPath) {
 
   // GET /api/endpoints -> summaries (no raw blob)
   if (urlPath === '/api/endpoints' && method === 'GET') {
+    if (!requireRole(req, res, 'viewer')) return;
     const config = await loadConfig();
     sendJson(res, 200, { endpoints: config.endpoints.map(summaryOf) });
     return;
@@ -156,7 +153,7 @@ async function handleApi(req, res, urlPath) {
 
   // POST /api/endpoints -> add (admin)
   if (urlPath === '/api/endpoints' && method === 'POST') {
-    if (!requireAdmin(req, res)) return;
+    if (!requireRole(req, res, 'admin')) return;
     let payload;
     try {
       payload = await readJsonBody(req);
@@ -199,16 +196,24 @@ async function handleApi(req, res, urlPath) {
 
   // POST /api/refresh -> refresh all (admin)
   if (urlPath === '/api/refresh' && method === 'POST') {
-    if (!requireAdmin(req, res)) return;
+    if (!requireRole(req, res, 'admin')) return;
     const config = await refreshAll();
     sendJson(res, 200, { endpoints: config.endpoints.map(summaryOf) });
     return;
   }
 
-  // GET /api/me -> credential check
+  // GET /api/me -> who am I (role + user)
   if (urlPath === '/api/me' && method === 'GET') {
-    if (!requireAdmin(req, res)) return;
-    sendJson(res, 200, { admin: true, user: ADMIN_USER });
+    const role = roleFor(req.headers['authorization'] || '');
+    if (!role) {
+      send401(res);
+      return;
+    }
+    sendJson(res, 200, {
+      role,
+      user: role === 'admin' ? ADMIN_USER : VIEWER_USER,
+      canWrite: role === 'admin',
+    });
     return;
   }
 
@@ -219,6 +224,7 @@ async function handleApi(req, res, urlPath) {
     const isRefresh = Boolean(idMatch[2]);
 
     if (!isRefresh && method === 'GET') {
+      if (!requireRole(req, res, 'viewer')) return;
       const config = await loadConfig();
       const endpoint = config.endpoints.find((e) => e.id === id);
       if (!endpoint) {
@@ -230,7 +236,7 @@ async function handleApi(req, res, urlPath) {
     }
 
     if (!isRefresh && method === 'DELETE') {
-      if (!requireAdmin(req, res)) return;
+      if (!requireRole(req, res, 'admin')) return;
       const config = await loadConfig();
       const before = config.endpoints.length;
       config.endpoints = config.endpoints.filter((e) => e.id !== id);
@@ -244,7 +250,7 @@ async function handleApi(req, res, urlPath) {
     }
 
     if (isRefresh && method === 'POST') {
-      if (!requireAdmin(req, res)) return;
+      if (!requireRole(req, res, 'admin')) return;
       const endpoint = await refreshOne(id);
       if (!endpoint) {
         sendJson(res, 404, { error: 'Not found' });
@@ -272,6 +278,8 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === 'GET' || req.method === 'HEAD') {
+      // The whole UI is behind a login (viewer or admin).
+      if (!requireRole(req, res, 'viewer')) return;
       await serveStatic(req, res, urlPath);
       return;
     }
@@ -288,7 +296,15 @@ async function start() {
 
   if (!ADMIN_PASSWORD) {
     console.warn(
-      '[startup] WARNING: ADMIN_PASSWORD is not set — admin actions are disabled until you set it.'
+      '[startup] WARNING: ADMIN_PASSWORD is not set — admin (write) actions are disabled.'
+    );
+  }
+  if (VIEWER_PASSWORD) {
+    console.log('[startup] read-only viewer account enabled (user: %s)', VIEWER_USER);
+  }
+  if (!ADMIN_PASSWORD && !VIEWER_PASSWORD) {
+    console.warn(
+      '[startup] WARNING: neither ADMIN_PASSWORD nor VIEWER_PASSWORD is set — nobody can log in. Set at least one.'
     );
   }
 
