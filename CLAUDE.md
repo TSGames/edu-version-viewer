@@ -26,8 +26,13 @@ Backend (`src/`):
 - `fetcher.js` — fetches an `_about` URL (http/https, redirects, timeout) and
   `summarize()`s it into `version`, `renderservice`, `rs2`, `services`,
   `features`, `plugins`, `raw`.
-- `store.js` — persistence: a single `config.json` in `DATA_DIR`
-  (default `/data`), atomic write via temp file + rename.
+- `store.js` — persistence in `DATA_DIR` (default `/data`), atomic writes via
+  temp file + rename. Split into durable config and volatile fetch data:
+  `config.json` holds only `{ id, label, url, addedAt, notes, pwLink }` per
+  endpoint; each endpoint's latest fetch result (incl. the large `raw` blob)
+  lives in `fetches/<id>.json`. `ensureConfig()` migrates a legacy single-file
+  `config.json` into this layout and prunes orphaned fetch files. Merged views
+  via `loadMerged()` / `loadMergedOne()`.
 - `cron.js` — minimal 5-field cron parser + scheduler (`parseCron`,
   `matches`, `scheduleCron`). Evaluates once per minute.
 - `url.js` — `normalizeAboutUrl()` turns pasted input into an
@@ -56,6 +61,10 @@ Other: `Dockerfile`, `docker-compose*.yml`, `.github/workflows/ci.yml`
 - **RS2 pill**: when `renderingService2 != null` in the response, a green
   `RS2` pill is shown in the card badges.
 - **features/plugins** chips render only the object `id`, not the raw JSON.
+- **Per-endpoint metadata**: admins can edit each card (`PATCH /api/endpoints/:id`)
+  to set a free-text `notes` (textarea) and a `pwLink` (e.g. a password-manager
+  URL, opened `target="_blank"`). `pwLink` is normalized to http(s); other
+  schemes are rejected. The card title links to `<origin>/edu-sharing`.
 - The periodic refresh re-renders all cards but preserves which `<details>`
   the user had open (keyed by endpoint id + summary label; cards carry a
   `data-id`).

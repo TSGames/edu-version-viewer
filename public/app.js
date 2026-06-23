@@ -101,6 +101,12 @@ function renderCard(e) {
 
     <div class="muted">Letzter Abgleich: ${escapeHtml(lastSync)}</div>
     ${e.error ? `<div class="error-text">Fehler: ${escapeHtml(e.error)}</div>` : ''}
+    ${
+      e.pwLink
+        ? `<div class="pw-link"><a href="${escapeHtml(e.pwLink)}" target="_blank" rel="noopener noreferrer">🔑 Zugang / Passwort</a></div>`
+        : ''
+    }
+    ${e.notes ? `<div class="notes">${escapeHtml(e.notes)}</div>` : ''}
 
     ${featuresHtml}
     ${pluginsHtml}
@@ -133,15 +139,78 @@ function renderCard(e) {
     refreshBtn.textContent = 'Jetzt aktualisieren';
     refreshBtn.className = 'secondary';
     refreshBtn.onclick = () => refreshOne(e.id);
+    const editBtn = document.createElement('button');
+    editBtn.textContent = 'Bearbeiten';
+    editBtn.className = 'secondary';
+    editBtn.onclick = () => openEditForm(card, e);
     const delBtn = document.createElement('button');
     delBtn.textContent = 'Löschen';
     delBtn.onclick = () => removeEndpoint(e.id, e.label || hostOf(e.url));
     actions.appendChild(refreshBtn);
+    actions.appendChild(editBtn);
     actions.appendChild(delBtn);
     card.appendChild(actions);
   }
 
   return card;
+}
+
+// Inline editor for an endpoint's label, password link and notes (admin only).
+function openEditForm(card, e) {
+  if (card.querySelector('.edit-form')) return; // already editing
+  const form = document.createElement('form');
+  form.className = 'edit-form';
+  form.innerHTML = `
+    <label class="edit-field">Label
+      <input class="edit-label" type="text" value="${escapeHtml(e.label || '')}" />
+    </label>
+    <label class="edit-field">Passwort-Link (URL, öffnet im neuen Tab)
+      <input class="edit-pw" type="text" placeholder="z. B. https://vault.example/eintrag" value="${escapeHtml(e.pwLink || '')}" />
+    </label>
+    <label class="edit-field">Notiz
+      <textarea class="edit-notes" rows="3">${escapeHtml(e.notes || '')}</textarea>
+    </label>
+    <div class="row">
+      <button type="submit">Speichern</button>
+      <button type="button" class="secondary cancel">Abbrechen</button>
+      <span class="edit-msg muted"></span>
+    </div>
+  `;
+  form.querySelector('.cancel').onclick = () => loadEndpoints();
+  form.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    saveEdit(e.id, form);
+  });
+  card.appendChild(form);
+  form.querySelector('.edit-label').focus();
+}
+
+async function saveEdit(id, form) {
+  const msg = form.querySelector('.edit-msg');
+  msg.textContent = 'speichere…';
+  msg.className = 'edit-msg muted';
+  const body = {
+    label: form.querySelector('.edit-label').value,
+    pwLink: form.querySelector('.edit-pw').value,
+    notes: form.querySelector('.edit-notes').value,
+  };
+  try {
+    const res = await fetch('/api/endpoints/' + encodeURIComponent(id), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      loadEndpoints();
+    } else {
+      msg.textContent = data.error || 'Fehler';
+      msg.className = 'edit-msg error-text';
+    }
+  } catch {
+    msg.textContent = 'Netzwerkfehler';
+    msg.className = 'edit-msg error-text';
+  }
 }
 
 // For features/plugins (arrays of objects like {id: "dataprotection"}) we only

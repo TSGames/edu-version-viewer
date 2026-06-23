@@ -6,7 +6,17 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
-import { loadConfig, saveConfig, ensureConfig, getConfigPath } from './store.js';
+import {
+  loadConfig,
+  saveConfig,
+  ensureConfig,
+  getConfigPath,
+  loadMerged,
+  loadMergedOne,
+  saveFetch,
+  deleteFetch,
+  defaultFetch,
+} from './store.js';
 import { fetchEndpoint, refreshAll, refreshOne } from './fetcher.js';
 import { scheduleCron } from './cron.js';
 import { normalizeAboutUrl, deriveLabel } from './url.js';
@@ -55,6 +65,27 @@ function sendJson(res, status, obj) {
 function summaryOf(e) {
   const { raw, ...rest } = e;
   return rest;
+}
+
+// Normalize an optional link (e.g. password-manager URL). Empty -> ''.
+// Prepends https:// when no scheme is given; only http(s) allowed.
+function normalizeLink(input) {
+  if (input == null) return '';
+  const raw = String(input).trim();
+  if (raw === '') return '';
+  // Only prepend https:// when no scheme was given; an explicit non-http(s)
+  // scheme (ftp:, javascript:, …) must be rejected, not coerced.
+  const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw);
+  let url;
+  try {
+    url = new URL(hasScheme ? raw : 'https://' + raw);
+  } catch {
+    throw new Error('Invalid link URL');
+  }
+  if (!/^https?:$/.test(url.protocol)) {
+    throw new Error('Only http(s) links are supported');
+  }
+  return url.toString();
 }
 
 const RANK = { viewer: 1, admin: 2 };
@@ -146,8 +177,8 @@ async function handleApi(req, res, urlPath) {
   // GET /api/endpoints -> summaries (no raw blob)
   if (urlPath === '/api/endpoints' && method === 'GET') {
     if (!requireRole(req, res, 'viewer')) return;
-    const config = await loadConfig();
-    sendJson(res, 200, { endpoints: config.endpoints.map(summaryOf) });
+    const endpoints = await loadMerged();
+    sendJson(res, 200, { endpoints: endpoints.map(summaryOf) });
     return;
   }
 
@@ -168,6 +199,13 @@ async function handleApi(req, res, urlPath) {
       sendJson(res, 400, { error: e.message });
       return;
     }
+    let pwLink;
+    try {
+      pwLink = normalizeLink(payload.pwLink);
+    } catch (e) {
+      sendJson(res, 400, { error: e.message });
+      return;
+    }
     const config = await loadConfig();
     if (config.endpoints.some((e) => e.url === url)) {
       sendJson(res, 409, { error: 'Endpoint already exists' });
@@ -177,21 +215,15 @@ async function handleApi(req, res, urlPath) {
       id: crypto.randomUUID(),
       label: (payload.label && String(payload.label).trim()) || deriveLabel(url),
       url,
-      lastSync: null,
-      lastStatus: 'pending',
-      error: null,
-      version: null,
-      renderservice: null,
-      rs2: false,
-      services: [],
-      features: null,
-      plugins: null,
-      failCount: 0,
-      raw: null,
+      addedAt: new Date().toISOString(),
+      notes: payload.notes != null ? String(payload.notes) : '',
+      pwLink,
+      ...defaultFetch(),
     };
     await fetchEndpoint(endpoint); // fetch immediately so data shows up
     config.endpoints.push(endpoint);
-    await saveConfig(config);
+    await saveConfig(config); // durable config (strips fetch fields)
+    await saveFetch(endpoint.id, endpoint); // latest fetch result
     sendJson(res, 201, { endpoint: summaryOf(endpoint) });
     return;
   }
@@ -227,13 +259,48 @@ async function handleApi(req, res, urlPath) {
 
     if (!isRefresh && method === 'GET') {
       if (!requireRole(req, res, 'viewer')) return;
-      const config = await loadConfig();
-      const endpoint = config.endpoints.find((e) => e.id === id);
+      const endpoint = await loadMergedOne(id);
       if (!endpoint) {
         sendJson(res, 404, { error: 'Not found' });
         return;
       }
       sendJson(res, 200, { endpoint });
+      return;
+    }
+
+    // PATCH /api/endpoints/:id -> edit label / notes / pwLink (admin)
+    if (!isRefresh && method === 'PATCH') {
+      if (!requireRole(req, res, 'admin')) return;
+      let payload;
+      try {
+        payload = await readJsonBody(req);
+      } catch (e) {
+        sendJson(res, 400, { error: e.message });
+        return;
+      }
+      const config = await loadConfig();
+      const cfg = config.endpoints.find((e) => e.id === id);
+      if (!cfg) {
+        sendJson(res, 404, { error: 'Not found' });
+        return;
+      }
+      if (payload.label !== undefined) {
+        const label = String(payload.label).trim();
+        if (label) cfg.label = label;
+      }
+      if (payload.notes !== undefined) {
+        cfg.notes = String(payload.notes);
+      }
+      if (payload.pwLink !== undefined) {
+        try {
+          cfg.pwLink = normalizeLink(payload.pwLink);
+        } catch (e) {
+          sendJson(res, 400, { error: e.message });
+          return;
+        }
+      }
+      await saveConfig(config);
+      sendJson(res, 200, { endpoint: summaryOf(await loadMergedOne(id)) });
       return;
     }
 
@@ -247,6 +314,7 @@ async function handleApi(req, res, urlPath) {
         return;
       }
       await saveConfig(config);
+      await deleteFetch(id);
       sendJson(res, 200, { ok: true });
       return;
     }

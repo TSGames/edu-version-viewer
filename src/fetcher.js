@@ -2,7 +2,7 @@
 // features. Stores the *entire* raw response so nothing is lost ("alles catchen").
 import http from 'node:http';
 import https from 'node:https';
-import { loadConfig, saveConfig } from './store.js';
+import { loadConfig, loadFetch, saveFetch, defaultFetch } from './store.js';
 
 const TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS || 10000);
 const MAX_REDIRECTS = 3;
@@ -138,22 +138,27 @@ export async function fetchEndpoint(endpoint) {
   return endpoint;
 }
 
-// Refresh every configured endpoint and persist once.
+// Refresh every configured endpoint; each fetch is persisted independently.
+// Returns merged (config + fetch) endpoint objects.
 export async function refreshAll() {
-  const config = await loadConfig();
-  for (const endpoint of config.endpoints) {
-    await fetchEndpoint(endpoint);
+  const { endpoints } = await loadConfig();
+  const merged = [];
+  for (const cfg of endpoints) {
+    const ep = { ...cfg, ...((await loadFetch(cfg.id)) || defaultFetch()) };
+    await fetchEndpoint(ep);
+    await saveFetch(ep.id, ep);
+    merged.push(ep);
   }
-  await saveConfig(config);
-  return config;
+  return { endpoints: merged };
 }
 
-// Refresh a single endpoint by id and persist.
+// Refresh a single endpoint by id and persist. Returns the merged endpoint.
 export async function refreshOne(id) {
-  const config = await loadConfig();
-  const endpoint = config.endpoints.find((e) => e.id === id);
-  if (!endpoint) return null;
-  await fetchEndpoint(endpoint);
-  await saveConfig(config);
-  return endpoint;
+  const { endpoints } = await loadConfig();
+  const cfg = endpoints.find((e) => e.id === id);
+  if (!cfg) return null;
+  const ep = { ...cfg, ...((await loadFetch(id)) || defaultFetch()) };
+  await fetchEndpoint(ep);
+  await saveFetch(id, ep);
+  return ep;
 }

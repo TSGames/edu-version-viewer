@@ -249,10 +249,64 @@ summary {
   font-size: 0.75rem;
 }
 
+.pw-link {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.pw-link a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.pw-link a:hover {
+  text-decoration: underline;
+}
+
+.notes {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.85rem;
+  background: var(--subtle-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem;
+  margin-top: 0.5rem;
+}
+
 .card-actions {
   display: flex;
   gap: 0.5rem;
   margin-top: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
+}
+
+.edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.edit-form textarea {
+  font: inherit;
+  resize: vertical;
+  min-height: 60px;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--subtle-bg);
+  color: var(--text);
 }
 
 .card-actions button {
