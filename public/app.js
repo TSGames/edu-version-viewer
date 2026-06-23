@@ -53,6 +53,20 @@ function hostOf(url) {
   }
 }
 
+// Derive the edu-sharing portal URL (<origin>/edu-sharing) from a stored
+// _about endpoint URL, preserving any path prefix before /edu-sharing.
+function eduSharingUrl(url) {
+  try {
+    const u = new URL(url);
+    const marker = '/edu-sharing';
+    const idx = u.pathname.indexOf(marker);
+    const path = idx >= 0 ? u.pathname.slice(0, idx + marker.length) : marker;
+    return u.origin + path;
+  } catch {
+    return url;
+  }
+}
+
 // ---------- rendering ----------
 
 function renderCard(e) {
@@ -78,7 +92,7 @@ function renderCard(e) {
   card.innerHTML = `
     <div class="card-head">
       <div>
-        <div class="card-title">${escapeHtml(e.label || hostOf(e.url))}</div>
+        <div class="card-title"><a href="${escapeHtml(eduSharingUrl(e.url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(e.label || hostOf(e.url))}</a></div>
         <div class="card-url">${escapeHtml(e.url)}</div>
       </div>
       <span class="status"><span class="dot ${statusClass}"></span>${escapeHtml(e.lastStatus || '—')}</span>
