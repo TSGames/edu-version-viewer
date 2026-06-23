@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>edu-sharing Version Viewer</title>
+    <link rel="stylesheet" href="/style.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>📦</text></svg>"
+    />
+  </head>
+  <body>
+    <header>
+      <h1>edu-sharing Version Viewer</h1>
+      <div class="header-actions">
+        <span id="cron-info" class="muted"></span>
+        <button id="admin-toggle" type="button">Admin</button>
+      </div>
+    </header>
+
+    <section id="admin-panel" class="panel hidden">
+      <div id="login-row" class="row">
+        <input id="admin-user" type="text" placeholder="Benutzer" autocomplete="username" />
+        <input id="admin-pass" type="password" placeholder="Passwort" autocomplete="current-password" />
+        <button id="login-btn" type="button">Anmelden</button>
+        <span id="login-status" class="muted"></span>
+      </div>
+
+      <div id="admin-actions" class="hidden">
+        <div class="row">
+          <input
+            id="new-url"
+            type="text"
+            placeholder="z. B. stable.demo.edu-sharing.net  oder  vollständige _about-URL"
+          />
+          <input id="new-label" type="text" placeholder="Label (optional)" />
+          <button id="add-btn" type="button">Hinzufügen</button>
+        </div>
+        <div class="row">
+          <button id="refresh-all-btn" type="button">Alle aktualisieren</button>
+          <button id="logout-btn" type="button" class="secondary">Abmelden</button>
+          <span id="admin-msg" class="muted"></span>
+        </div>
+      </div>
+    </section>
+
+    <main id="cards"></main>
+
+    <footer class="muted">
+      Speichert in <code>config.json</code> im gemounteten Volume · pollt
+      <code>/edu-sharing/rest/_about</code>
+    </footer>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
