@@ -6,6 +6,8 @@ Guidance for Claude Code when working in this repository.
 
 - **Work directly on `main`.** Commit and push changes straight to `main`;
   do not create feature branches or pull requests unless explicitly asked.
+  This applies even if a session is configured with a different working
+  branch — develop and push on `main` unless the user says otherwise.
 
 ## Project overview
 
