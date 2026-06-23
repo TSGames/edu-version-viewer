@@ -10,6 +10,7 @@ const els = {
   adminMsg: document.getElementById('admin-msg'),
   cronInfo: document.getElementById('cron-info'),
   whoami: document.getElementById('whoami'),
+  sortBy: document.getElementById('sort-by'),
 };
 
 // The browser handles HTTP Basic auth (native login dialog) and attaches the
@@ -138,13 +139,24 @@ function renderCard(e) {
   return card;
 }
 
+// For features/plugins (arrays of objects like {id: "dataprotection"}) we only
+// want the bare id, not the surrounding JSON. Fall back to name, then JSON.
+function chipLabel(v) {
+  if (v && typeof v === 'object') {
+    if (v.id != null) return String(v.id);
+    if (v.name != null) return String(v.name);
+    return JSON.stringify(v);
+  }
+  return String(v);
+}
+
 function renderExtra(title, value) {
   if (value == null) return '';
   let inner;
   if (Array.isArray(value)) {
     if (value.length === 0) return '';
     inner = `<div class="chips">${value
-      .map((v) => `<span class="chip">${escapeHtml(typeof v === 'object' ? JSON.stringify(v) : v)}</span>`)
+      .map((v) => `<span class="chip">${escapeHtml(chipLabel(v))}</span>`)
       .join('')}</div>`;
   } else if (typeof value === 'object') {
     inner = `<pre class="raw">${escapeHtml(JSON.stringify(value, null, 2))}</pre>`;
@@ -184,6 +196,56 @@ function restoreOpenState(state) {
   }
 }
 
+// Parse a version string into numeric components so "10.0" sorts after "9.0"
+// (a plain string compare would put "10" before "9"). Unknown versions sort
+// last. Example: "9.1" -> [9, 1].
+function versionKey(v) {
+  if (v == null || v === '') return null;
+  const parts = String(v)
+    .split(/[^0-9]+/)
+    .filter((s) => s !== '')
+    .map(Number);
+  return parts.length ? parts : null;
+}
+
+function compareVersion(a, b) {
+  const ka = versionKey(a);
+  const kb = versionKey(b);
+  if (ka == null && kb == null) return 0;
+  if (ka == null) return 1; // unknown last
+  if (kb == null) return -1;
+  for (let i = 0; i < Math.max(ka.length, kb.length); i++) {
+    const diff = (ka[i] || 0) - (kb[i] || 0);
+    if (diff) return diff;
+  }
+  return 0;
+}
+
+// Problems first, then pending, then ok.
+const STATUS_RANK = { error: 0, pending: 1, ok: 2 };
+
+function sortEndpoints(list) {
+  const by = els.sortBy ? els.sortBy.value : 'label';
+  const arr = list.slice();
+  arr.sort((a, b) => {
+    switch (by) {
+      case 'url':
+        return String(a.url).localeCompare(String(b.url));
+      case 'status':
+        return (
+          (STATUS_RANK[a.lastStatus] ?? 9) - (STATUS_RANK[b.lastStatus] ?? 9) ||
+          String(a.label || '').localeCompare(String(b.label || ''))
+        );
+      case 'version':
+        return compareVersion(a.version, b.version);
+      case 'label':
+      default:
+        return String(a.label || hostOf(a.url)).localeCompare(String(b.label || hostOf(b.url)));
+    }
+  });
+  return arr;
+}
+
 async function loadEndpoints() {
   try {
     const res = await fetch('/api/endpoints');
@@ -195,7 +257,7 @@ async function loadEndpoints() {
         '<div class="muted">Noch keine Endpunkte. Als Admin anmelden und hinzufügen.</div>';
       return;
     }
-    for (const e of data.endpoints) {
+    for (const e of sortEndpoints(data.endpoints)) {
       els.cards.appendChild(renderCard(e));
     }
     restoreOpenState(openState);
@@ -322,6 +384,7 @@ els.newUrl.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') addEndpoint();
 });
 els.refreshAllBtn.addEventListener('click', refreshAll);
+els.sortBy.addEventListener('change', loadEndpoints);
 
 loadRole();
 loadEndpoints();
