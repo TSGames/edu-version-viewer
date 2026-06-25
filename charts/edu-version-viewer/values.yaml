@@ -47,6 +47,11 @@ persistence:
   size: 1Gi
   storageClass: ""
   # existingClaim: ""   # use a pre-created PVC instead of creating one
+  # Keep the PVC (and its data) on `helm uninstall` via the
+  # helm.sh/resource-policy: keep annotation. Set false to let uninstall delete
+  # it. Whether the underlying PV/data is then reclaimed depends on the
+  # StorageClass reclaimPolicy.
+  retain: true
 
 # Plain (non-secret) configuration -> rendered into a ConfigMap.
 config:

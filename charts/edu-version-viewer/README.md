@@ -62,6 +62,7 @@ normally do not set it.
 | `config.failThreshold` | `2` | Consecutive failures before `error` |
 | `persistence.enabled` | `true` | PVC for `/data` (config + fetches) |
 | `persistence.size` | `1Gi` | PVC size |
+| `persistence.retain` | `true` | Keep the PVC (and data) on `helm uninstall` |
 | `service.type` / `service.port` | `ClusterIP` / `3000` | Service |
 | `ingress.enabled` | `false` | Ingress |
 | `resources.limits` | `100m` / `128Mi` | CPU / memory limits |
@@ -96,5 +97,10 @@ endpoints – but **not** cluster-internal services:
 - The PVC uses `ReadWriteOnce` and the Deployment uses the `Recreate` strategy,
   so a single replica owns the volume. For autoscaling use a `ReadWriteMany`
   storage class.
+- The PVC carries `helm.sh/resource-policy: keep` (via `persistence.retain`), so
+  it survives `helm uninstall`. Upgrades and pod restarts keep the data too.
+  Delete the PVC manually (`kubectl delete pvc <release>-edu-version-viewer`)
+  if you really want the data gone. Whether the underlying PV is then reclaimed
+  depends on the StorageClass `reclaimPolicy`.
 - The ServiceAccount carries no RBAC and has token automounting disabled — the
   app never calls the Kubernetes API.
