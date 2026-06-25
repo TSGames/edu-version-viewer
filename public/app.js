@@ -362,13 +362,13 @@ function renderList(list) {
       <td><span class="status"><span class="dot ${statusClass}"></span>${escapeHtml(
         e.lastStatus || '—'
       )}</span></td>
-      <td>
+      <td class="list-label-cell">
         <div class="list-label"><a href="${escapeHtml(
           eduSharingUrl(e.url)
         )}" target="_blank" rel="noopener noreferrer">${escapeHtml(
           e.label || hostOf(e.url)
         )}</a> ${pwIcon} ${notesIcon}</div>
-        <div class="card-url">${escapeHtml(e.url)}</div>
+        <div class="card-url" title="${escapeHtml(e.url)}">${escapeHtml(e.url)}</div>
       </td>
       <td>${escapeHtml(e.version || 'unbekannt')}</td>
       <td>${
@@ -391,7 +391,13 @@ function renderList(list) {
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
-  return table;
+
+  // Wrap in a scroll container so the table scrolls horizontally on narrow
+  // screens instead of squashing columns into each other.
+  const wrap = document.createElement('div');
+  wrap.className = 'list-wrap';
+  wrap.appendChild(table);
+  return wrap;
 }
 
 // Open the edit form for a list row in a full-width detail row right below it.
