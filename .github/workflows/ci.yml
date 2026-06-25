@@ -78,3 +78,64 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  # Validate the Helm chart on every push/PR (lint + render variants). No push.
+  helm-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.3
+      - name: Helm lint
+        run: helm lint charts/edu-version-viewer
+      - name: Helm template (defaults)
+        run: helm template t charts/edu-version-viewer --set auth.adminPassword=ci > /dev/null
+      - name: Helm template (all features on)
+        run: |
+          helm template t charts/edu-version-viewer \
+            --set auth.adminPassword=ci \
+            --set networkPolicy.enabled=true \
+            --set ingress.enabled=true \
+            --set persistence.enabled=true \
+            --set autoscaling.enabled=true > /dev/null
+
+  # Package and push the chart as an OCI artifact to GHCR. Versioning follows the
+  # git ref: a v* tag publishes the matching semver (and pins the same image
+  # tag); main publishes a dev prerelease pinned to the sha-<sha> image.
+  helm-publish:
+    runs-on: ubuntu-latest
+    needs: [test, docker, helm-lint]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.3
+      - name: Compute chart and app versions from the git ref
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            V="${GITHUB_REF_NAME#v}"
+            echo "chart=$V" >> "$GITHUB_OUTPUT"
+            echo "app=$V" >> "$GITHUB_OUTPUT"
+          else
+            SHORT="${GITHUB_SHA::7}"
+            # Valid SemVer prerelease, sorts below any real release.
+            echo "chart=0.0.0-dev.${SHORT}" >> "$GITHUB_OUTPUT"
+            # Matches docker/metadata-action's type=sha image tag.
+            echo "app=sha-${SHORT}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Log in to GHCR (Helm OCI)
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: Package and push chart
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          helm package charts/edu-version-viewer \
+            --version "${{ steps.ver.outputs.chart }}" \
+            --app-version "${{ steps.ver.outputs.app }}"
+          helm push "edu-version-viewer-${{ steps.ver.outputs.chart }}.tgz" \
+            "oci://ghcr.io/${OWNER}/charts"

@@ -1,0 +1,49 @@
+{{- if .Values.networkPolicy.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "edu-version-viewer.fullname" . }}
+  labels:
+    {{- include "edu-version-viewer.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "edu-version-viewer.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Reach the app's HTTP port. With fromAnywhere, no `from` is set (= all
+    # sources); otherwise only the configured peers may connect.
+    - ports:
+        - port: http
+          protocol: TCP
+      {{- if not .Values.networkPolicy.ingress.fromAnywhere }}
+      from:
+        {{- toYaml .Values.networkPolicy.ingress.from | nindent 8 }}
+      {{- end }}
+  egress:
+    # DNS resolution (kube-dns / CoreDNS). Kept separate so the private-range
+    # exception in the internet rule below does not block the DNS ClusterIP.
+    - ports:
+        {{- range .Values.networkPolicy.egress.dnsPorts }}
+        - port: {{ . }}
+          protocol: UDP
+        - port: {{ . }}
+          protocol: TCP
+        {{- end }}
+    # Public internet only: allow 0.0.0.0/0 on the internet ports but exclude
+    # cluster-internal / private ranges so the pod cannot reach internal
+    # services. This is what lets the app poll external edu-sharing endpoints
+    # while staying isolated from the rest of the cluster.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              {{- toYaml .Values.networkPolicy.egress.blockedPrivateCIDRs | nindent 14 }}
+      ports:
+        {{- range .Values.networkPolicy.egress.internetPorts }}
+        - port: {{ . }}
+          protocol: TCP
+        {{- end }}
+{{- end }}

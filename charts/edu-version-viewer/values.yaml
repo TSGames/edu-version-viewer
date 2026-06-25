@@ -1,0 +1,152 @@
+# Default values for edu-version-viewer.
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/tsgames/edu-version-viewer
+  # Leave empty to default to the chart's appVersion (set by CI at package time).
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # The app makes no Kubernetes API calls, so it needs no special RBAC. We still
+  # create a dedicated ServiceAccount (instead of borrowing the namespace
+  # `default`) and disable token automounting, so no API credential is mounted
+  # into the pod. Set create:false to use the default SA instead.
+  create: true
+  automount: false
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+service:
+  type: ClusterIP
+  port: 3000
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: edu-version-viewer.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Persistent storage for DATA_DIR (config.json + fetches/<id>.json).
+persistence:
+  enabled: true
+  accessMode: ReadWriteOnce
+  size: 1Gi
+  storageClass: ""
+  # existingClaim: ""   # use a pre-created PVC instead of creating one
+
+# Plain (non-secret) configuration -> rendered into a ConfigMap.
+config:
+  port: "3000"
+  adminUser: admin
+  viewerUser: viewer
+  cronSchedule: "0 */2 * * *"
+  dataDir: /data
+  requestTimeoutMs: "10000"
+  failThreshold: "2"
+
+# Credentials -> rendered into a Secret (unless existingSecret is set).
+# An empty password disables that account (the key is still created).
+auth:
+  adminPassword: ""
+  viewerPassword: ""
+  # Reference a pre-existing Secret instead of letting the chart create one.
+  existingSecret: ""
+  adminPasswordKey: ADMIN_PASSWORD
+  viewerPasswordKey: VIEWER_PASSWORD
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+
+# Restrict the pod's networking: it MUST reach the public internet (to poll the
+# external edu-sharing _about endpoints) but should NOT reach cluster-internal /
+# private networks. DNS is allowed as a dedicated rule.
+networkPolicy:
+  enabled: true
+  ingress:
+    # Allow traffic to the app port from anywhere. Set to false to restrict to
+    # the namespace/pod selectors below.
+    fromAnywhere: true
+    # Used when fromAnywhere is false. Each entry is a NetworkPolicyPeer.
+    from: []
+    #  - namespaceSelector:
+    #      matchLabels:
+    #        kubernetes.io/metadata.name: ingress-nginx
+  egress:
+    # kube-dns / CoreDNS resolution (kept separate so the private-range
+    # exception below does not block the DNS ClusterIP).
+    dnsPorts:
+      - 53
+    # Internet ports the app may reach.
+    internetPorts:
+      - 443
+      - 80
+    # Private / non-internet ranges to EXCLUDE from internet egress.
+    blockedPrivateCIDRs:
+      - 10.0.0.0/8
+      - 172.16.0.0/12
+      - 192.168.0.0/16
+      - 169.254.0.0/16  # link-local / cloud metadata
+      - 100.64.0.0/10   # carrier-grade NAT
+
+resources:
+  limits:
+    cpu: 100m
+    memory: 128Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+# Pod-level security context. The image runs as the non-root `node` user (1000).
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+# Container-level security context. The app only writes under DATA_DIR (a
+# mounted volume), so the root filesystem can be read-only.
+securityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+livenessProbe:
+  httpGet:
+    path: /api/health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 30
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /api/health
+    port: http
+  initialDelaySeconds: 3
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

@@ -1,0 +1,29 @@
+edu-version-viewer wurde installiert.
+
+1. Zugriff auf die Oberfläche:
+{{- if .Values.ingress.enabled }}
+  http(s)://{{ (index .Values.ingress.hosts 0).host }}/
+{{- else if eq .Values.service.type "ClusterIP" }}
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "edu-version-viewer.fullname" . }} 8080:{{ .Values.service.port }}
+  # dann http://localhost:8080/  öffnen
+{{- else }}
+  kubectl --namespace {{ .Release.Namespace }} get svc {{ include "edu-version-viewer.fullname" . }}
+{{- end }}
+
+2. Health-Check (ohne Auth):  GET /api/health  -> {"ok":true}
+
+3. Image:
+   {{ .Values.image.repository }}:{{ include "edu-version-viewer.imageTag" . }}
+
+{{- if and (not .Values.auth.existingSecret) (not .Values.auth.adminPassword) (not .Values.auth.viewerPassword) }}
+
+WARNUNG: Weder auth.adminPassword/auth.viewerPassword noch auth.existingSecret
+gesetzt — niemand kann sich anmelden. Bitte mindestens ein Passwort setzen, z. B.:
+  helm upgrade {{ .Release.Name }} ... --set auth.adminPassword=<geheim>
+{{- end }}
+{{- if and .Values.autoscaling.enabled .Values.persistence.enabled (eq .Values.persistence.accessMode "ReadWriteOnce") }}
+
+HINWEIS: autoscaling ist aktiv, aber das PVC nutzt ReadWriteOnce — mehrere
+Replicas können dasselbe Volume nicht gleichzeitig mounten. Für >1 Replica eine
+ReadWriteMany-StorageClass verwenden oder persistence deaktivieren.
+{{- end }}
