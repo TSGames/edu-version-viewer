@@ -3,6 +3,11 @@ name: CI
 on:
   push:
     branches: ["**"]
+    # Also run on release tags so the publish jobs fire. Both v-prefixed and
+    # bare semver tags are accepted (this environment creates bare tags).
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "[0-9]+.[0-9]+.[0-9]+"
   pull_request:
 
 jobs:
@@ -48,8 +53,8 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     needs: [test, docker]
-    # Publish only on pushes to main and on version tags (v*), never on PRs.
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    # Publish only on pushes to main and on semver tags, never on PRs.
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
     permissions:
       contents: read
       packages: write
@@ -101,12 +106,13 @@ jobs:
             --set autoscaling.enabled=true > /dev/null
 
   # Package and push the chart as an OCI artifact to GHCR. Versioning follows the
-  # git ref: a v* tag publishes the matching semver (and pins the same image
-  # tag); main publishes a dev prerelease pinned to the sha-<sha> image.
+  # git ref: a semver tag (v1.2.3 or 1.2.3) publishes the matching version (and
+  # pins the same image tag); main publishes a dev prerelease pinned to the
+  # sha-<sha> image.
   helm-publish:
     runs-on: ubuntu-latest
     needs: [test, docker, helm-lint]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
     permissions:
       contents: read
       packages: write
@@ -118,7 +124,7 @@ jobs:
       - name: Compute chart and app versions from the git ref
         id: ver
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             V="${GITHUB_REF_NAME#v}"
             echo "chart=$V" >> "$GITHUB_OUTPUT"
             echo "app=$V" >> "$GITHUB_OUTPUT"
