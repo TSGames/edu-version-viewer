@@ -11,7 +11,12 @@ const els = {
   cronInfo: document.getElementById('cron-info'),
   whoami: document.getElementById('whoami'),
   sortBy: document.getElementById('sort-by'),
+  viewToggle: document.getElementById('view-toggle'),
 };
+
+// 'cards' (grid of detailed cards) or 'list' (compact scannable table).
+// Persisted so the chosen view survives reloads and the 30s auto-refresh.
+let view = localStorage.getItem('view') === 'list' ? 'list' : 'cards';
 
 // The browser handles HTTP Basic auth (native login dialog) and attaches the
 // Authorization header to every same-origin request automatically, so the
@@ -135,24 +140,30 @@ function renderCard(e) {
   if (isAdmin()) {
     const actions = document.createElement('div');
     actions.className = 'card-actions';
-    const refreshBtn = document.createElement('button');
-    refreshBtn.textContent = 'Jetzt aktualisieren';
-    refreshBtn.className = 'secondary';
-    refreshBtn.onclick = () => refreshOne(e.id);
-    const editBtn = document.createElement('button');
-    editBtn.textContent = 'Bearbeiten';
-    editBtn.className = 'secondary';
-    editBtn.onclick = () => openEditForm(card, e);
-    const delBtn = document.createElement('button');
-    delBtn.textContent = 'Löschen';
-    delBtn.onclick = () => removeEndpoint(e.id, e.label || hostOf(e.url));
-    actions.appendChild(refreshBtn);
-    actions.appendChild(editBtn);
-    actions.appendChild(delBtn);
+    appendAdminButtons(actions, e, { refreshLabel: 'Jetzt aktualisieren', onEdit: () => openEditForm(card, e) });
     card.appendChild(actions);
   }
 
   return card;
+}
+
+// Build the admin action buttons (refresh / edit / delete) into `container`.
+// Shared by the card and list views; `onEdit` decides where the edit form goes.
+function appendAdminButtons(container, e, { refreshLabel, onEdit }) {
+  const refreshBtn = document.createElement('button');
+  refreshBtn.textContent = refreshLabel || 'Aktualisieren';
+  refreshBtn.className = 'secondary';
+  refreshBtn.onclick = () => refreshOne(e.id);
+  const editBtn = document.createElement('button');
+  editBtn.textContent = 'Bearbeiten';
+  editBtn.className = 'secondary';
+  editBtn.onclick = onEdit;
+  const delBtn = document.createElement('button');
+  delBtn.textContent = 'Löschen';
+  delBtn.onclick = () => removeEndpoint(e.id, e.label || hostOf(e.url));
+  container.appendChild(refreshBtn);
+  container.appendChild(editBtn);
+  container.appendChild(delBtn);
 }
 
 // Inline editor for an endpoint's label, password link and notes (admin only).
@@ -320,19 +331,102 @@ function sortEndpoints(list) {
   return arr;
 }
 
+// Compact, scannable table. One row per endpoint plus an admin actions column;
+// "Bearbeiten" opens the edit form in a full-width row beneath the entry.
+function renderList(list) {
+  const table = document.createElement('table');
+  table.className = 'list-table';
+
+  const cols = ['Status', 'Label', 'Version', 'RS', 'Services', 'Letzter Abgleich'];
+  if (isAdmin()) cols.push('Aktionen');
+  table.innerHTML =
+    '<thead><tr>' + cols.map((c) => `<th>${escapeHtml(c)}</th>`).join('') + '</tr></thead>';
+
+  const tbody = document.createElement('tbody');
+  for (const e of list) {
+    const statusClass =
+      e.lastStatus === 'ok' ? 'ok' : e.lastStatus === 'error' ? 'error' : 'pending';
+    const services = Array.isArray(e.services) ? e.services : [];
+
+    const tr = document.createElement('tr');
+    tr.dataset.id = e.id;
+
+    const notesIcon = e.notes
+      ? `<span class="row-note" title="${escapeHtml(e.notes)}">📝</span>`
+      : '';
+    const pwIcon = e.pwLink
+      ? `<a class="row-pw" href="${escapeHtml(e.pwLink)}" target="_blank" rel="noopener noreferrer" title="Zugang / Passwort">🔑</a>`
+      : '';
+
+    tr.innerHTML = `
+      <td><span class="status"><span class="dot ${statusClass}"></span>${escapeHtml(
+        e.lastStatus || '—'
+      )}</span></td>
+      <td>
+        <div class="list-label"><a href="${escapeHtml(
+          eduSharingUrl(e.url)
+        )}" target="_blank" rel="noopener noreferrer">${escapeHtml(
+          e.label || hostOf(e.url)
+        )}</a> ${pwIcon} ${notesIcon}</div>
+        <div class="card-url">${escapeHtml(e.url)}</div>
+      </td>
+      <td>${escapeHtml(e.version || 'unbekannt')}</td>
+      <td>${
+        e.rs2 ? '<span class="badge rs2">RS2</span>' : '<span class="badge">RS1</span>'
+      }</td>
+      <td>${services.length}</td>
+      <td class="muted">${escapeHtml(e.lastSync ? relativeTime(e.lastSync) : 'noch nie')}</td>
+    `;
+
+    if (isAdmin()) {
+      const td = document.createElement('td');
+      td.className = 'list-actions';
+      appendAdminButtons(td, e, {
+        refreshLabel: 'Aktualisieren',
+        onEdit: () => openListEdit(tbody, tr, e),
+      });
+      tr.appendChild(td);
+    }
+
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  return table;
+}
+
+// Open the edit form for a list row in a full-width detail row right below it.
+function openListEdit(tbody, tr, e) {
+  if (tr.nextSibling && tr.nextSibling.classList && tr.nextSibling.classList.contains('list-edit-row')) {
+    return; // already editing
+  }
+  const editRow = document.createElement('tr');
+  editRow.className = 'list-edit-row';
+  const td = document.createElement('td');
+  td.colSpan = isAdmin() ? 7 : 6;
+  editRow.appendChild(td);
+  tbody.insertBefore(editRow, tr.nextSibling);
+  openEditForm(td, e);
+}
+
 async function loadEndpoints() {
   try {
     const res = await fetch('/api/endpoints');
     const data = await res.json();
     const openState = captureOpenState();
+    els.cards.classList.toggle('list-mode', view === 'list');
     els.cards.innerHTML = '';
     if (!data.endpoints || data.endpoints.length === 0) {
       els.cards.innerHTML =
         '<div class="muted">Noch keine Endpunkte. Als Admin anmelden und hinzufügen.</div>';
       return;
     }
-    for (const e of sortEndpoints(data.endpoints)) {
-      els.cards.appendChild(renderCard(e));
+    const sorted = sortEndpoints(data.endpoints);
+    if (view === 'list') {
+      els.cards.appendChild(renderList(sorted));
+    } else {
+      for (const e of sorted) {
+        els.cards.appendChild(renderCard(e));
+      }
     }
     restoreOpenState(openState);
   } catch {
@@ -459,6 +553,22 @@ els.newUrl.addEventListener('keydown', (e) => {
 });
 els.refreshAllBtn.addEventListener('click', refreshAll);
 els.sortBy.addEventListener('change', loadEndpoints);
+
+function updateViewToggle() {
+  for (const btn of els.viewToggle.querySelectorAll('button')) {
+    btn.classList.toggle('active', btn.dataset.view === view);
+  }
+}
+
+els.viewToggle.addEventListener('click', (ev) => {
+  const btn = ev.target.closest('button[data-view]');
+  if (!btn || btn.dataset.view === view) return;
+  view = btn.dataset.view;
+  localStorage.setItem('view', view);
+  updateViewToggle();
+  loadEndpoints();
+});
+updateViewToggle();
 
 loadRole();
 loadEndpoints();
