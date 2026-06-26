@@ -22,7 +22,7 @@ const FETCH_DIR = path.join(DATA_DIR, 'fetches');
 const EMPTY = { endpoints: [] };
 
 // Durable config fields kept in config.json.
-const CONFIG_FIELDS = ['id', 'label', 'url', 'addedAt', 'notes', 'pwLink'];
+const CONFIG_FIELDS = ['id', 'label', 'url', 'addedAt', 'notes', 'pwLink', 'repoType', 'hosting'];
 // Volatile fetch fields kept in fetches/<id>.json.
 const FETCH_FIELDS = [
   'lastSync',

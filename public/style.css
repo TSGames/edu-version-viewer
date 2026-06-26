@@ -227,6 +227,32 @@ button:hover {
   font-weight: 700;
 }
 
+/* Environment (repository type) badges: production stands out, staging warns,
+   dev stays muted. Hosting is an outlined neutral badge. */
+.badge.repo {
+  font-weight: 700;
+  color: var(--accent-text);
+}
+.badge.repo-prod {
+  background: var(--err);
+  border-color: var(--err);
+}
+.badge.repo-staging {
+  background: var(--pending);
+  border-color: var(--pending);
+}
+.badge.repo-dev {
+  background: var(--subtle-bg);
+  border-color: var(--border);
+  color: var(--muted);
+  font-weight: 600;
+}
+.badge.hosting {
+  background: var(--subtle-bg);
+  border-color: var(--accent);
+  color: var(--version-text);
+}
+
 .status {
   display: inline-flex;
   align-items: center;
@@ -338,7 +364,8 @@ summary {
   color: var(--muted);
 }
 
-.edit-field input {
+.edit-field input,
+.edit-field select {
   /* In this column-flex container, the global `flex: 1 1 200px` would turn
      200px into the input's height. Reset it so the field stays one line tall. */
   flex: none;
@@ -461,6 +488,13 @@ code {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.list-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.3rem;
 }
 
 .row-pw {

@@ -67,6 +67,18 @@ function summaryOf(e) {
   return rest;
 }
 
+// Per-endpoint classification fields. Empty string means "not set".
+const REPO_TYPES = ['dev', 'staging', 'prod'];
+const HOSTING_TYPES = ['cluster', 'docker', 'external'];
+
+// Validate an optional enum value; '' / null clears it. Throws on bad input.
+function normalizeEnum(value, allowed, field) {
+  if (value == null || value === '') return '';
+  const v = String(value);
+  if (!allowed.includes(v)) throw new Error('Invalid ' + field);
+  return v;
+}
+
 // Normalize an optional link (e.g. password-manager URL). Empty -> ''.
 // Prepends https:// when no scheme is given; only http(s) allowed.
 function normalizeLink(input) {
@@ -199,9 +211,11 @@ async function handleApi(req, res, urlPath) {
       sendJson(res, 400, { error: e.message });
       return;
     }
-    let pwLink;
+    let pwLink, repoType, hosting;
     try {
       pwLink = normalizeLink(payload.pwLink);
+      repoType = normalizeEnum(payload.repoType, REPO_TYPES, 'repoType');
+      hosting = normalizeEnum(payload.hosting, HOSTING_TYPES, 'hosting');
     } catch (e) {
       sendJson(res, 400, { error: e.message });
       return;
@@ -218,6 +232,8 @@ async function handleApi(req, res, urlPath) {
       addedAt: new Date().toISOString(),
       notes: payload.notes != null ? String(payload.notes) : '',
       pwLink,
+      repoType,
+      hosting,
       ...defaultFetch(),
     };
     await fetchEndpoint(endpoint); // fetch immediately so data shows up
@@ -268,7 +284,7 @@ async function handleApi(req, res, urlPath) {
       return;
     }
 
-    // PATCH /api/endpoints/:id -> edit label / notes / pwLink (admin)
+    // PATCH /api/endpoints/:id -> edit label / notes / pwLink / repoType / hosting (admin)
     if (!isRefresh && method === 'PATCH') {
       if (!requireRole(req, res, 'admin')) return;
       let payload;
@@ -298,6 +314,17 @@ async function handleApi(req, res, urlPath) {
           sendJson(res, 400, { error: e.message });
           return;
         }
+      }
+      try {
+        if (payload.repoType !== undefined) {
+          cfg.repoType = normalizeEnum(payload.repoType, REPO_TYPES, 'repoType');
+        }
+        if (payload.hosting !== undefined) {
+          cfg.hosting = normalizeEnum(payload.hosting, HOSTING_TYPES, 'hosting');
+        }
+      } catch (e) {
+        sendJson(res, 400, { error: e.message });
+        return;
       }
       await saveConfig(config);
       sendJson(res, 200, { endpoint: summaryOf(await loadMergedOne(id)) });

@@ -72,6 +72,39 @@ function eduSharingUrl(url) {
   }
 }
 
+// ---------- per-endpoint classification (repository type / hosting) ----------
+
+// value -> full label (used in the edit-form selects)
+const REPO_TYPE_LABELS = { dev: 'Dev', staging: 'Staging', prod: 'Produktion' };
+const HOSTING_LABELS = { cluster: 'Cluster (K8S)', docker: 'Docker', external: 'Externe Umgebung' };
+// value -> short label (used on the badges)
+const REPO_TYPE_SHORT = { dev: 'Dev', staging: 'Staging', prod: 'Prod' };
+const HOSTING_SHORT = { cluster: 'K8S', docker: 'Docker', external: 'Extern' };
+
+// Badges for repoType + hosting, shown on cards and list rows. Empty -> nothing.
+function metaBadgesHtml(e) {
+  let out = '';
+  if (e.repoType && REPO_TYPE_SHORT[e.repoType]) {
+    out += `<span class="badge repo repo-${e.repoType}">${escapeHtml(REPO_TYPE_SHORT[e.repoType])}</span>`;
+  }
+  if (e.hosting && HOSTING_SHORT[e.hosting]) {
+    out += `<span class="badge hosting">${escapeHtml(HOSTING_SHORT[e.hosting])}</span>`;
+  }
+  return out;
+}
+
+// Build <option>s for a classification select, with an empty "not set" entry.
+function classOptions(labels, current) {
+  const cur = current || '';
+  const opts = [`<option value=""${cur === '' ? ' selected' : ''}>— nicht gesetzt —</option>`];
+  for (const [value, label] of Object.entries(labels)) {
+    opts.push(
+      `<option value="${value}"${cur === value ? ' selected' : ''}>${escapeHtml(label)}</option>`
+    );
+  }
+  return opts.join('');
+}
+
 // ---------- rendering ----------
 
 function renderCard(e) {
@@ -102,6 +135,7 @@ function renderCard(e) {
       <span class="badge version">Version: <strong>${escapeHtml(e.version || 'unbekannt')}</strong></span>
       ${e.rs2 ? '<span class="badge rs2">RS2</span>' : '<span class="badge">RS1</span>'}
       <span class="badge">Services: ${services.length}</span>
+      ${metaBadgesHtml(e)}
     </div>
 
     <div class="muted">Letzter Abgleich: ${escapeHtml(lastSync)}</div>
@@ -175,6 +209,12 @@ function openEditForm(card, e) {
     <label class="edit-field">Label
       <input class="edit-label" type="text" value="${escapeHtml(e.label || '')}" />
     </label>
+    <label class="edit-field">Repository-Typ
+      <select class="edit-repotype">${classOptions(REPO_TYPE_LABELS, e.repoType)}</select>
+    </label>
+    <label class="edit-field">Hosting
+      <select class="edit-hosting">${classOptions(HOSTING_LABELS, e.hosting)}</select>
+    </label>
     <label class="edit-field">Passwort-Link (URL, öffnet im neuen Tab)
       <input class="edit-pw" type="text" placeholder="z. B. https://vault.example/eintrag" value="${escapeHtml(e.pwLink || '')}" />
     </label>
@@ -204,6 +244,8 @@ async function saveEdit(id, form) {
     label: form.querySelector('.edit-label').value,
     pwLink: form.querySelector('.edit-pw').value,
     notes: form.querySelector('.edit-notes').value,
+    repoType: form.querySelector('.edit-repotype').value,
+    hosting: form.querySelector('.edit-hosting').value,
   };
   try {
     const res = await fetch('/api/endpoints/' + encodeURIComponent(id), {
@@ -369,6 +411,7 @@ function renderList(list) {
           e.label || hostOf(e.url)
         )}</a> ${pwIcon} ${notesIcon}</div>
         <div class="card-url" title="${escapeHtml(e.url)}">${escapeHtml(e.url)}</div>
+        ${metaBadgesHtml(e) ? `<div class="list-meta">${metaBadgesHtml(e)}</div>` : ''}
       </td>
       <td>${escapeHtml(e.version || 'unbekannt')}</td>
       <td>${
