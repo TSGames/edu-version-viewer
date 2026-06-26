@@ -578,4 +578,11 @@ updateViewToggle();
 
 loadRole();
 loadEndpoints();
-setInterval(loadEndpoints, 30000); // auto-refresh list
+
+// Auto-refresh the list every 30s, but skip while an edit form is open — the
+// periodic re-render rebuilds all cards/rows and would otherwise discard the
+// admin's in-progress edits. The next tick after saving/cancelling resumes it.
+setInterval(() => {
+  if (els.cards.querySelector('.edit-form')) return;
+  loadEndpoints();
+}, 30000);
