@@ -252,6 +252,16 @@ button:hover {
   border-color: var(--accent);
   color: var(--version-text);
 }
+/* Auto network/organisation tag (derived from DNS + IP ranges). */
+.badge.net {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--panel);
+  font-weight: 600;
+}
+.badge.net::before {
+  content: "🌐 ";
+}
 
 .status {
   display: inline-flex;

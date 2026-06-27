@@ -64,9 +64,19 @@ Other: `Dockerfile`, `docker-compose*.yml`, `.github/workflows/ci.yml`
   `RS2` pill is shown in the card badges.
 - **features/plugins** chips render only the object `id`, not the raw JSON.
 - **Per-endpoint metadata**: admins can edit each card (`PATCH /api/endpoints/:id`)
-  to set a free-text `notes` (textarea) and a `pwLink` (e.g. a password-manager
-  URL, opened `target="_blank"`). `pwLink` is normalized to http(s); other
-  schemes are rejected. The card title links to `<origin>/edu-sharing`.
+  to set a free-text `notes` (textarea), a `pwLink` (e.g. a password-manager
+  URL, opened `target="_blank"`), a `repoType` (`dev`/`staging`/`prod`) and a
+  `hosting` (`cluster`/`docker`/`external`). `pwLink` is normalized to http(s)
+  and `repoType`/`hosting` are validated against an allow-list (invalid → 400,
+  empty clears). All shown as badges. The card title links to
+  `<origin>/edu-sharing`.
+- **Automatic network tags**: on each fetch the endpoint's host is resolved to
+  an IPv4 (`dns.lookup`) and matched against `src/ipranges.js` ranges loaded
+  from `IP_RANGES_FILE` (default `<DATA_DIR>/ip-ranges.conf`). Each match adds a
+  tag; the resolved IP (`resolvedIp`) and `networkTags` are stored as volatile
+  fetch fields and rendered as 🌐 badges. Range format is `<range>: <tag>` with
+  `<range>` a CIDR (`134.76.0.0/16`) or octet prefix (`134.76` = /16). See
+  `ip-ranges.example.conf`. Resolution failures degrade gracefully (no tag).
 - The periodic refresh re-renders all cards but preserves which `<details>`
   the user had open (keyed by endpoint id + summary label; cards carry a
   `data-id`).
@@ -78,5 +88,6 @@ Other: `Dockerfile`, `docker-compose*.yml`, `.github/workflows/ci.yml`
   - Env: `PORT` (default 3000), `ADMIN_USER`/`ADMIN_PASSWORD`,
     `VIEWER_USER`/`VIEWER_PASSWORD`, `DATA_DIR` (default `/data`),
     `CRON_SCHEDULE` (default `*/15 * * * *`), `REQUEST_TIMEOUT_MS`,
-    `FAIL_THRESHOLD`. An account with an empty password is disabled.
+    `FAIL_THRESHOLD`, `IP_RANGES_FILE` (default `<DATA_DIR>/ip-ranges.conf`).
+    An account with an empty password is disabled.
 - Test: `npm test` (`node --test`).

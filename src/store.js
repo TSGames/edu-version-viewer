@@ -18,6 +18,8 @@ import path from 'node:path';
 const DATA_DIR = process.env.DATA_DIR || '/data';
 const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
 const FETCH_DIR = path.join(DATA_DIR, 'fetches');
+// IP-range -> tag mappings for automatic network/organisation tagging.
+const IP_RANGES_PATH = process.env.IP_RANGES_FILE || path.join(DATA_DIR, 'ip-ranges.conf');
 
 const EMPTY = { endpoints: [] };
 
@@ -36,6 +38,8 @@ const FETCH_FIELDS = [
   'services',
   'features',
   'plugins',
+  'resolvedIp',
+  'networkTags',
   'raw',
 ];
 
@@ -45,6 +49,10 @@ export function getConfigPath() {
 
 export function getFetchDir() {
   return FETCH_DIR;
+}
+
+export function getIpRangesPath() {
+  return IP_RANGES_PATH;
 }
 
 // The state a never-fetched endpoint reports.
@@ -61,6 +69,8 @@ export function defaultFetch() {
     services: [],
     features: null,
     plugins: null,
+    resolvedIp: null,
+    networkTags: [],
     raw: null,
   };
 }

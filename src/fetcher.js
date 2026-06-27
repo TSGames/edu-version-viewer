@@ -2,7 +2,9 @@
 // features. Stores the *entire* raw response so nothing is lost ("alles catchen").
 import http from 'node:http';
 import https from 'node:https';
-import { loadConfig, loadFetch, saveFetch, defaultFetch } from './store.js';
+import dns from 'node:dns';
+import { loadConfig, loadFetch, saveFetch, defaultFetch, getIpRangesPath } from './store.js';
+import { loadRanges, tagsForIp } from './ipranges.js';
 
 const TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS || 10000);
 const MAX_REDIRECTS = 3;
@@ -112,9 +114,37 @@ export function summarize(raw) {
   };
 }
 
-// Fetch a single endpoint object (mutated in place) and return it.
-export async function fetchEndpoint(endpoint) {
+function hostFromUrl(u) {
+  try {
+    return new URL(u).hostname;
+  } catch {
+    return null;
+  }
+}
+
+// Resolve a hostname to an IPv4 address, or null on any failure.
+async function resolveIp(host) {
+  if (!host) return null;
+  try {
+    const { address } = await dns.promises.lookup(host, { family: 4 });
+    return address;
+  } catch {
+    return null;
+  }
+}
+
+// Fetch a single endpoint object (mutated in place) and return it. `ranges` is
+// the parsed IP-range list; when omitted it is loaded from the configured file.
+export async function fetchEndpoint(endpoint, ranges) {
+  if (ranges === undefined) ranges = await loadRanges(getIpRangesPath());
   const now = new Date().toISOString();
+
+  // Resolve the host and derive automatic network/organisation tags. This is
+  // independent of the HTTP fetch so tags stay current even when a fetch fails.
+  const ip = await resolveIp(hostFromUrl(endpoint.url));
+  endpoint.resolvedIp = ip;
+  endpoint.networkTags = ip ? tagsForIp(ip, ranges) : [];
+
   try {
     const raw = await httpGetJson(endpoint.url);
     Object.assign(endpoint, summarize(raw), {
@@ -142,10 +172,11 @@ export async function fetchEndpoint(endpoint) {
 // Returns merged (config + fetch) endpoint objects.
 export async function refreshAll() {
   const { endpoints } = await loadConfig();
+  const ranges = await loadRanges(getIpRangesPath());
   const merged = [];
   for (const cfg of endpoints) {
     const ep = { ...cfg, ...((await loadFetch(cfg.id)) || defaultFetch()) };
-    await fetchEndpoint(ep);
+    await fetchEndpoint(ep, ranges);
     await saveFetch(ep.id, ep);
     merged.push(ep);
   }
@@ -157,8 +188,9 @@ export async function refreshOne(id) {
   const { endpoints } = await loadConfig();
   const cfg = endpoints.find((e) => e.id === id);
   if (!cfg) return null;
+  const ranges = await loadRanges(getIpRangesPath());
   const ep = { ...cfg, ...((await loadFetch(id)) || defaultFetch()) };
-  await fetchEndpoint(ep);
+  await fetchEndpoint(ep, ranges);
   await saveFetch(id, ep);
   return ep;
 }

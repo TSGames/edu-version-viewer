@@ -81,7 +81,9 @@ const HOSTING_LABELS = { cluster: 'Cluster (K8S)', docker: 'Docker', external: '
 const REPO_TYPE_SHORT = { dev: 'Dev', staging: 'Staging', prod: 'Prod' };
 const HOSTING_SHORT = { cluster: 'K8S', docker: 'Docker', external: 'Extern' };
 
-// Badges for repoType + hosting, shown on cards and list rows. Empty -> nothing.
+// Badges for repoType + hosting + auto network tags, shown on cards and list
+// rows. Network tags are derived from DNS (host -> IP) matched against the
+// configured IP ranges; the resolved IP is shown as a tooltip. Empty -> ''.
 function metaBadgesHtml(e) {
   let out = '';
   if (e.repoType && REPO_TYPE_SHORT[e.repoType]) {
@@ -89,6 +91,12 @@ function metaBadgesHtml(e) {
   }
   if (e.hosting && HOSTING_SHORT[e.hosting]) {
     out += `<span class="badge hosting">${escapeHtml(HOSTING_SHORT[e.hosting])}</span>`;
+  }
+  if (Array.isArray(e.networkTags)) {
+    const ipTitle = e.resolvedIp ? ` (${e.resolvedIp})` : '';
+    for (const tag of e.networkTags) {
+      out += `<span class="badge net" title="Netz: ${escapeHtml(tag)}${escapeHtml(ipTitle)}">${escapeHtml(tag)}</span>`;
+    }
   }
   return out;
 }
@@ -139,6 +147,7 @@ function renderCard(e) {
     </div>
 
     <div class="muted">Letzter Abgleich: ${escapeHtml(lastSync)}</div>
+    ${e.resolvedIp ? `<div class="muted">IP: ${escapeHtml(e.resolvedIp)}${Array.isArray(e.networkTags) && e.networkTags.length ? ' · ' + escapeHtml(e.networkTags.join(', ')) : ''}</div>` : ''}
     ${e.error ? `<div class="error-text">Fehler: ${escapeHtml(e.error)}</div>` : ''}
     ${
       e.pwLink
