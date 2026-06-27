@@ -43,6 +43,22 @@ export function normalizeAboutUrl(input) {
   return url.toString();
 }
 
+// Derive the repositories endpoint URL from a stored `_about` URL:
+//   .../edu-sharing/rest/_about -> .../edu-sharing/rest/network/v1/repositories
+export function repositoriesUrl(aboutUrl) {
+  const url = new URL(aboutUrl);
+  url.search = '';
+  url.hash = '';
+  if (/\/_about\/?$/.test(url.pathname)) {
+    url.pathname = url.pathname.replace(/\/_about\/?$/, '/network/v1/repositories');
+  } else if (url.pathname.includes('/rest/')) {
+    url.pathname = url.pathname.replace(/\/rest\/.*$/, '/rest/network/v1/repositories');
+  } else {
+    url.pathname = url.pathname.replace(/\/+$/, '') + '/network/v1/repositories';
+  }
+  return url.toString();
+}
+
 // Derive a friendly default label from the host (and a path hint if present).
 export function deriveLabel(urlString) {
   try {

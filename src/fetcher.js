@@ -5,6 +5,7 @@ import https from 'node:https';
 import dns from 'node:dns';
 import { loadConfig, loadFetch, saveFetch, defaultFetch, getIpRangesPath } from './store.js';
 import { loadRanges, tagsForIp } from './ipranges.js';
+import { repositoriesUrl } from './url.js';
 
 const TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS || 10000);
 const MAX_REDIRECTS = 3;
@@ -133,6 +134,18 @@ async function resolveIp(host) {
   }
 }
 
+// Extract the connected repositories, dropping the home repo. Only the type and
+// title are kept — that's all the UI shows.
+export function extractRepositories(raw) {
+  const list = raw && Array.isArray(raw.repositories) ? raw.repositories : [];
+  return list
+    .filter((r) => r && r.isHomeRepo !== true)
+    .map((r) => ({
+      type: r.repositoryType != null ? String(r.repositoryType) : null,
+      title: r.title != null ? String(r.title) : null,
+    }));
+}
+
 // Fetch a single endpoint object (mutated in place) and return it. `ranges` is
 // the parsed IP-range list; when omitted it is loaded from the configured file.
 export async function fetchEndpoint(endpoint, ranges) {
@@ -153,6 +166,16 @@ export async function fetchEndpoint(endpoint, ranges) {
       error: null,
       failCount: 0,
     });
+
+    // Secondary, best-effort: the connected-repositories list. This endpoint is
+    // not always accessible (it can return 403); any failure is tolerated and
+    // never flips the endpoint status. On failure the previous list is kept.
+    try {
+      const reposRaw = await httpGetJson(repositoriesUrl(endpoint.url));
+      endpoint.repositories = extractRepositories(reposRaw);
+    } catch {
+      /* 403 / unreachable / bad JSON -> keep whatever we had before */
+    }
   } catch (err) {
     const message = err && err.message ? err.message : String(err);
     endpoint.failCount = (endpoint.failCount || 0) + 1;

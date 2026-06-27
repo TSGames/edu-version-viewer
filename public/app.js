@@ -129,6 +129,7 @@ function renderCard(e) {
 
   const featuresHtml = renderExtra('Features', e.features);
   const pluginsHtml = renderExtra('Plugins', e.plugins);
+  const repositoriesHtml = renderRepositories(e.repositories);
 
   card.innerHTML = `
     <div class="card-head">
@@ -156,6 +157,7 @@ function renderCard(e) {
     }
     ${e.notes ? `<div class="notes">${escapeHtml(e.notes)}</div>` : ''}
 
+    ${repositoriesHtml}
     ${featuresHtml}
     ${pluginsHtml}
     <details>
@@ -302,6 +304,26 @@ function renderExtra(title, value) {
   return `<details><summary>${escapeHtml(title)}</summary>${inner}</details>`;
 }
 
+// Connected repositories (home repo already filtered out server-side). Each is
+// shown as a chip with its title and a muted repository type.
+function renderRepositories(repos) {
+  if (!Array.isArray(repos) || repos.length === 0) return '';
+  const chips = repos
+    .map((r) => {
+      const title = r.title ? escapeHtml(r.title) : '(ohne Titel)';
+      const type = r.type ? `<span class="repo-type">${escapeHtml(r.type)}</span>` : '';
+      return `<span class="chip repo-chip">${title}${type}</span>`;
+    })
+    .join('');
+  return `<details open><summary>Repositories (${repos.length})</summary><div class="chips">${chips}</div></details>`;
+}
+
+// Compact "N repos" badge for the list view.
+function repoCountBadgeHtml(e) {
+  const n = Array.isArray(e.repositories) ? e.repositories.length : 0;
+  return n ? `<span class="badge" title="Verbundene Repositories">📚 ${n}</span>` : '';
+}
+
 // The periodic refresh re-renders every card from scratch, which would
 // collapse any <details> the user has opened. Snapshot the open/closed state
 // (keyed by endpoint id + summary label) before re-rendering and reapply it
@@ -420,7 +442,11 @@ function renderList(list) {
           e.label || hostOf(e.url)
         )}</a> ${pwIcon} ${notesIcon}</div>
         <div class="card-url" title="${escapeHtml(e.url)}">${escapeHtml(e.url)}</div>
-        ${metaBadgesHtml(e) ? `<div class="list-meta">${metaBadgesHtml(e)}</div>` : ''}
+        ${
+          metaBadgesHtml(e) + repoCountBadgeHtml(e)
+            ? `<div class="list-meta">${metaBadgesHtml(e)}${repoCountBadgeHtml(e)}</div>`
+            : ''
+        }
       </td>
       <td>${escapeHtml(e.version || 'unbekannt')}</td>
       <td>${

@@ -70,6 +70,14 @@ Other: `Dockerfile`, `docker-compose*.yml`, `.github/workflows/ci.yml`
   and `repoType`/`hosting` are validated against an allow-list (invalid → 400,
   empty clears). All shown as badges. The card title links to
   `<origin>/edu-sharing`.
+- **Connected repositories**: on each successful `_about` fetch a best-effort
+  secondary call to `<base>/edu-sharing/rest/network/v1/repositories`
+  (`repositoriesUrl()` in `url.js`) lists the connected repositories. The home
+  repo (`isHomeRepo`) is dropped; only `repositoryType` + `title` are kept
+  (stored as the `repositories` fetch field, shown as chips on cards and a
+  count badge in the list). This endpoint is **not always accessible** (can
+  return 401/403); any failure is tolerated, never flips the status, and keeps
+  the previous list.
 - **Automatic network tags**: on each fetch the endpoint's host is resolved to
   an IPv4 (`dns.lookup`) and matched against `src/ipranges.js` ranges loaded
   from `IP_RANGES_FILE` (default `<DATA_DIR>/ip-ranges.conf`). Each match adds a
