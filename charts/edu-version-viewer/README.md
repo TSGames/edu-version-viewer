@@ -57,6 +57,8 @@ normally do not set it.
 | `auth.adminPassword` | `""` | Admin (read+write) password |
 | `auth.viewerPassword` | `""` | Read-only password (empty = disabled) |
 | `auth.existingSecret` | `""` | Use a pre-created Secret instead |
+| `auth.sessionSecret` | `""` | Signs the session cookie; empty = random per pod (logins drop on restart) |
+| `config.sessionTtlSeconds` | `3600` | Session lifetime (1 h) |
 | `config.cronSchedule` | `0 */2 * * *` | Poll schedule (every 2 h) |
 | `config.requestTimeoutMs` | `10000` | Per-endpoint fetch timeout |
 | `config.failThreshold` | `2` | Consecutive failures before `error` |

@@ -62,6 +62,8 @@ config:
   dataDir: /data
   requestTimeoutMs: "10000"
   failThreshold: "2"
+  # Session lifetime (seconds). Default matches the app default (1h).
+  sessionTtlSeconds: "3600"
 
 # Credentials -> rendered into a Secret (unless existingSecret is set).
 # An empty password disables that account (the key is still created).
@@ -72,6 +74,12 @@ auth:
   existingSecret: ""
   adminPasswordKey: ADMIN_PASSWORD
   viewerPasswordKey: VIEWER_PASSWORD
+  # Signs the session-id cookie. Leave EMPTY to let the app generate a random
+  # per-process secret (default) — logins then drop on pod restart. Set a stable
+  # value (>=32 chars), or provide the key via existingSecret, to keep logins
+  # across restarts.
+  sessionSecret: ""
+  sessionSecretKey: SESSION_SECRET
 
 autoscaling:
   enabled: false

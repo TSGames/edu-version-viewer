@@ -47,6 +47,54 @@ h1 {
   margin: 0;
 }
 
+/* Brand lockup: hexagon mark + "edu-sharing" / "Repo Viewer". Used in the
+   header (horizontal) and on the login (vertical, centered). */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  text-decoration: none;
+  color: inherit;
+}
+
+.brand-mark {
+  display: block;
+  flex: none;
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+
+.brand-edu {
+  font-weight: 800;
+  font-size: 1.2rem;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.brand-sub {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+}
+
+.brand-login {
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.45rem;
+  margin-bottom: 0.5rem;
+}
+
+.brand-login .brand-text {
+  align-items: center;
+}
+
 .header-actions {
   display: flex;
   align-items: center;

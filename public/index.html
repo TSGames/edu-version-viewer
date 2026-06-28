@@ -3,16 +3,20 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>edu-sharing Version Viewer</title>
+    <title>edu-sharing Repo Viewer</title>
     <link rel="stylesheet" href="/style.css" />
-    <link
-      rel="icon"
-      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>📦</text></svg>"
-    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   </head>
   <body>
     <div id="login" class="login hidden">
       <form id="login-form" class="login-box">
+        <div class="brand brand-login">
+          <img class="brand-mark" src="/logo.svg" alt="" width="56" height="56" />
+          <span class="brand-text">
+            <span class="brand-edu">edu-sharing</span>
+            <span class="brand-sub">Repo Viewer</span>
+          </span>
+        </div>
         <h2>Anmelden</h2>
         <label class="edit-field"
           >Benutzer
@@ -28,7 +32,13 @@
     </div>
 
     <header>
-      <h1>edu-sharing Version Viewer</h1>
+      <a class="brand" href="/" aria-label="edu-sharing Repo Viewer">
+        <img class="brand-mark" src="/logo.svg" alt="" width="40" height="40" />
+        <span class="brand-text">
+          <span class="brand-edu">edu-sharing</span>
+          <span class="brand-sub">Repo Viewer</span>
+        </span>
+      </a>
       <div class="header-actions">
         <span id="cron-info" class="muted"></span>
         <span id="whoami" class="muted"></span>

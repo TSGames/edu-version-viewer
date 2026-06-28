@@ -63,6 +63,14 @@ spec:
                 secretKeyRef:
                   name: {{ include "edu-version-viewer.secretName" . }}
                   key: {{ .Values.auth.viewerPasswordKey }}
+            # Optional: when the key is absent (default), no value is injected and
+            # the app falls back to a random per-process session secret.
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "edu-version-viewer.secretName" . }}
+                  key: {{ .Values.auth.sessionSecretKey }}
+                  optional: true
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
