@@ -20,7 +20,7 @@ import {
 import { fetchEndpoint, refreshAll, refreshOne } from './fetcher.js';
 import { scheduleCron } from './cron.js';
 import { normalizeAboutUrl, deriveLabel } from './url.js';
-import { makeAuthenticator } from './auth.js';
+import { makeAuthenticator, parseCookies, signSession, verifySession } from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -32,6 +32,14 @@ const VIEWER_USER = process.env.VIEWER_USER || 'viewer';
 const VIEWER_PASSWORD = process.env.VIEWER_PASSWORD || '';
 const CRON_SCHEDULE = process.env.CRON_SCHEDULE || '*/15 * * * *';
 const MAX_BODY = 1024 * 1024; // 1 MB
+
+// Session cookie: clients authenticate once (login form or Basic) and then ride
+// a signed, time-limited cookie instead of re-sending credentials every request.
+// SESSION_SECRET should be set in production (and shared across replicas);
+// without it a random per-process secret is used, so restarts invalidate logins.
+const SESSION_COOKIE = 'evv_session';
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+const SESSION_TTL_MS = Math.max(60, Number(process.env.SESSION_TTL_SECONDS) || 3600) * 1000;
 
 // Resolves an Authorization header to a role: 'admin' | 'viewer' | null.
 const roleFor = makeAuthenticator({
@@ -102,12 +110,39 @@ function normalizeLink(input) {
 
 const RANK = { viewer: 1, admin: 2 };
 
+// Resolve a request to a role using either a valid session cookie or, as a
+// fallback, an Authorization: Basic header (so API clients / CI keep working).
+function roleForRequest(req) {
+  const cookies = parseCookies(req.headers['cookie'] || '');
+  const fromCookie = verifySession(cookies[SESSION_COOKIE], SESSION_SECRET);
+  if (fromCookie) return fromCookie;
+  return roleFor(req.headers['authorization'] || '');
+}
+
+// No WWW-Authenticate header: the UI uses a login form (POST /api/login), so we
+// must not trigger the browser's native Basic dialog. CI/API clients may still
+// send Basic; they just get a plain 401 instead of a challenge.
 function send401(res) {
-  res.writeHead(401, {
-    'WWW-Authenticate': 'Basic realm="edu-version-viewer", charset="UTF-8"',
-    'Content-Type': 'application/json; charset=utf-8',
-  });
-  res.end(JSON.stringify({ error: 'Unauthorized' }));
+  sendJson(res, 401, { error: 'Unauthorized' });
+}
+
+// Set-Cookie value for a fresh session, or one that clears it.
+function sessionCookie(req, role) {
+  const token = signSession(role, Date.now() + SESSION_TTL_MS, SESSION_SECRET);
+  const secure =
+    req.headers['x-forwarded-proto'] === 'https' || Boolean(req.socket && req.socket.encrypted);
+  const attrs = [
+    `${SESSION_COOKIE}=${token}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    `Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
+  ];
+  if (secure) attrs.push('Secure');
+  return attrs.join('; ');
+}
+function clearSessionCookie() {
+  return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
 }
 
 // Enforce a minimum role. Returns true if allowed, otherwise writes the
@@ -115,7 +150,7 @@ function send401(res) {
 //   min = 'viewer' -> viewer or admin
 //   min = 'admin'  -> admin only
 function requireRole(req, res, min) {
-  const role = roleFor(req.headers['authorization'] || '');
+  const role = roleForRequest(req);
   if (!role) {
     send401(res);
     return false;
@@ -252,9 +287,42 @@ async function handleApi(req, res, urlPath) {
     return;
   }
 
+  // POST /api/login -> validate credentials once, set a 1h session cookie.
+  if (urlPath === '/api/login' && method === 'POST') {
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (e) {
+      sendJson(res, 400, { error: e.message });
+      return;
+    }
+    const user = body.user != null ? String(body.user) : '';
+    const pass = body.password != null ? String(body.password) : '';
+    const header = 'Basic ' + Buffer.from(user + ':' + pass).toString('base64');
+    const role = roleFor(header);
+    if (!role) {
+      sendJson(res, 401, { error: 'Ungültige Anmeldedaten' });
+      return;
+    }
+    res.setHeader('Set-Cookie', sessionCookie(req, role));
+    sendJson(res, 200, {
+      role,
+      user: role === 'admin' ? ADMIN_USER : VIEWER_USER,
+      canWrite: role === 'admin',
+    });
+    return;
+  }
+
+  // POST /api/logout -> clear the session cookie.
+  if (urlPath === '/api/logout' && method === 'POST') {
+    res.setHeader('Set-Cookie', clearSessionCookie());
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
   // GET /api/me -> who am I (role + user)
   if (urlPath === '/api/me' && method === 'GET') {
-    const role = roleFor(req.headers['authorization'] || '');
+    const role = roleForRequest(req);
     if (!role) {
       send401(res);
       return;
@@ -375,8 +443,8 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === 'GET' || req.method === 'HEAD') {
-      // The whole UI is behind a login (viewer or admin).
-      if (!requireRole(req, res, 'viewer')) return;
+      // The static shell (HTML/JS/CSS, no data) is public so the login form can
+      // load. All actual data sits behind /api/* and stays role-protected.
       await serveStatic(req, res, urlPath);
       return;
     }

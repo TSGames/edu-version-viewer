@@ -17,8 +17,13 @@ ESM, built-ins only — no runtime deps, no build step). It polls edu-sharing
 sync, status, services/modules, features and plugins. The full raw `_about`
 response is stored so nothing is lost.
 
-The whole UI sits behind HTTP Basic auth with two roles: **admin**
-(read + write) and **viewer** (read-only).
+Access has two roles: **admin** (read + write) and **viewer** (read-only).
+The browser UI logs in once via a form (`POST /api/login`) and then rides a
+signed, HttpOnly **session cookie** (default 1h) instead of re-sending
+credentials on every request. The static shell (HTML/JS/CSS, no data) is public
+so the login form can load; all data lives behind `/api/*`. API clients / CI may
+still authenticate with **HTTP Basic** on each request (`roleForRequest` accepts
+either a valid session cookie or a Basic header).
 
 ## Layout
 
@@ -39,7 +44,8 @@ Backend (`src/`):
   `matches`, `scheduleCron`). Evaluates once per minute.
 - `url.js` — `normalizeAboutUrl()` turns pasted input into an
   `/edu-sharing/rest/_about` URL; `deriveLabel()` for a default label.
-- `auth.js` — HTTP Basic parsing + constant-time role resolver.
+- `auth.js` — HTTP Basic parsing + constant-time role resolver, plus
+  cookie parsing and signed (HMAC) session-token sign/verify for the cookie login.
 
 Frontend (`public/`, vanilla JS, no framework/build):
 - `index.html` — header, admin panel (add/refresh, admins only), sort toolbar,
@@ -96,6 +102,8 @@ Other: `Dockerfile`, `docker-compose*.yml`, `.github/workflows/ci.yml`
   - Env: `PORT` (default 3000), `ADMIN_USER`/`ADMIN_PASSWORD`,
     `VIEWER_USER`/`VIEWER_PASSWORD`, `DATA_DIR` (default `/data`),
     `CRON_SCHEDULE` (default `*/15 * * * *`), `REQUEST_TIMEOUT_MS`,
-    `FAIL_THRESHOLD`, `IP_RANGES_FILE` (default `<DATA_DIR>/ip-ranges.conf`).
-    An account with an empty password is disabled.
+    `FAIL_THRESHOLD`, `IP_RANGES_FILE` (default `<DATA_DIR>/ip-ranges.conf`),
+    `SESSION_SECRET` (HMAC key for the login cookie; random per process if
+    unset — set it in prod / across replicas), `SESSION_TTL_SECONDS`
+    (default 3600). An account with an empty password is disabled.
 - Test: `npm test` (`node --test`).

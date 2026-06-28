@@ -12,15 +12,22 @@ const els = {
   whoami: document.getElementById('whoami'),
   sortBy: document.getElementById('sort-by'),
   viewToggle: document.getElementById('view-toggle'),
+  login: document.getElementById('login'),
+  loginForm: document.getElementById('login-form'),
+  loginUser: document.getElementById('login-user'),
+  loginPass: document.getElementById('login-pass'),
+  loginMsg: document.getElementById('login-msg'),
+  logoutBtn: document.getElementById('logout-btn'),
 };
 
 // 'cards' (grid of detailed cards) or 'list' (compact scannable table).
 // Persisted so the chosen view survives reloads and the 30s auto-refresh.
 let view = localStorage.getItem('view') === 'list' ? 'list' : 'cards';
 
-// The browser handles HTTP Basic auth (native login dialog) and attaches the
-// Authorization header to every same-origin request automatically, so the
-// frontend never touches credentials. We only need to know our role.
+// Auth: the user logs in once via the form (POST /api/login); the server sets a
+// signed, HttpOnly session cookie (1h) that the browser then sends with every
+// same-origin request automatically. We never hold credentials in JS and only
+// track our resolved role.
 let role = null;
 
 function isAdmin() {
@@ -495,6 +502,10 @@ function openListEdit(tbody, tr, e) {
 async function loadEndpoints() {
   try {
     const res = await fetch('/api/endpoints');
+    if (res.status === 401) {
+      showLogin(); // session expired -> back to the login screen
+      return;
+    }
     const data = await res.json();
     const openState = captureOpenState();
     els.cards.classList.toggle('list-mode', view === 'list');
@@ -525,22 +536,78 @@ function setAdminMsg(msg, isError) {
   els.adminMsg.className = isError ? 'error-text' : 'muted';
 }
 
-// Determine our role from the server. The browser has already supplied Basic
-// credentials (via its native dialog) to load this page, so they ride along.
+// ---------- login / session ----------
+
+function showLogin() {
+  role = null;
+  els.login.classList.remove('hidden');
+  els.logoutBtn.classList.add('hidden');
+  els.whoami.textContent = '';
+  els.adminPanel.classList.add('hidden');
+  if (els.loginUser) els.loginUser.focus();
+}
+
+function hideLogin() {
+  els.login.classList.add('hidden');
+}
+
+// Resolve our role from the session (cookie). Returns true when authenticated;
+// shows the login screen otherwise.
 async function loadRole() {
   try {
     const res = await fetch('/api/me');
+    if (res.status === 401) {
+      showLogin();
+      return false;
+    }
     if (res.ok) {
       const data = await res.json();
       role = data.role;
       els.whoami.textContent = `Angemeldet als ${data.user} (${
         role === 'admin' ? 'Admin' : 'nur Lesen'
       })`;
+      els.logoutBtn.classList.remove('hidden');
+      hideLogin();
+      updateAdminUi();
+      return true;
     }
   } catch {
-    /* ignore — page already required auth to load */
+    /* network error — leave UI as is */
   }
-  updateAdminUi();
+  return false;
+}
+
+async function doLogin(ev) {
+  ev.preventDefault();
+  els.loginMsg.textContent = '';
+  const body = { user: els.loginUser.value, password: els.loginPass.value };
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      els.loginPass.value = '';
+      els.loginMsg.textContent = '';
+      await loadRole(); // hides the overlay and loads data
+    } else {
+      const data = await res.json().catch(() => ({}));
+      els.loginMsg.textContent = data.error || 'Anmeldung fehlgeschlagen';
+    }
+  } catch {
+    els.loginMsg.textContent = 'Netzwerkfehler';
+  }
+}
+
+async function doLogout() {
+  try {
+    await fetch('/api/logout', { method: 'POST' });
+  } catch {
+    /* ignore */
+  }
+  els.cards.innerHTML = '';
+  showLogin();
 }
 
 async function addEndpoint() {
@@ -637,6 +704,8 @@ els.newUrl.addEventListener('keydown', (e) => {
 });
 els.refreshAllBtn.addEventListener('click', refreshAll);
 els.sortBy.addEventListener('change', loadEndpoints);
+els.loginForm.addEventListener('submit', doLogin);
+els.logoutBtn.addEventListener('click', doLogout);
 
 function updateViewToggle() {
   for (const btn of els.viewToggle.querySelectorAll('button')) {
@@ -654,13 +723,15 @@ els.viewToggle.addEventListener('click', (ev) => {
 });
 updateViewToggle();
 
+// Bootstrap: resolve the session. loadRole() loads the data when authenticated
+// (via updateAdminUi) or shows the login screen otherwise.
 loadRole();
-loadEndpoints();
 
-// Auto-refresh the list every 30s, but skip while an edit form is open — the
-// periodic re-render rebuilds all cards/rows and would otherwise discard the
-// admin's in-progress edits. The next tick after saving/cancelling resumes it.
+// Auto-refresh the list every 30s, but skip while logged out or while an edit
+// form is open — the periodic re-render rebuilds all cards/rows and would
+// otherwise discard the admin's in-progress edits. Resumes on the next tick.
 setInterval(() => {
+  if (!els.login.classList.contains('hidden')) return; // logged out
   if (els.cards.querySelector('.edit-form')) return;
   loadEndpoints();
 }, 30000);
