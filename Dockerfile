@@ -1,4 +1,3 @@
-# Zero runtime dependencies -> a tiny, fast image.
 FROM node:22-alpine
 
 ENV NODE_ENV=production \
@@ -7,12 +6,17 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-# Copy application sources (no npm install needed — no dependencies).
-COPY package.json ./
+# Install runtime deps first (cached unless package*.json change). The backend
+# uses Fastify; the frontend stays dependency-free.
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+
+# Copy application sources.
 COPY src ./src
 COPY public ./public
 
-# Persist config.json here; mount a volume in production.
+# Persist config.json here; mount a volume in production. chown after npm ci so
+# node_modules is owned by the non-root user.
 RUN mkdir -p /data && chown -R node:node /data /app
 VOLUME ["/data"]
 

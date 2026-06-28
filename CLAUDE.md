@@ -11,25 +11,32 @@ Guidance for Claude Code when working in this repository.
 
 ## Project overview
 
-`edu-version-viewer` is a small, **dependency-free** Node.js app (Node ≥ 20,
-ESM, built-ins only — no runtime deps, no build step). It polls edu-sharing
+`edu-version-viewer` is a small Node.js app (Node ≥ 20, ESM). The **frontend**
+is intentionally dependency-free (vanilla JS, no framework, no build step); the
+**backend** may use npm dependencies. It polls edu-sharing
 `_about` endpoints on a cron schedule and shows, per endpoint: version, last
 sync, status, services/modules, features and plugins. The full raw `_about`
 response is stored so nothing is lost.
 
 Access has two roles: **admin** (read + write) and **viewer** (read-only).
 The browser UI logs in once via a form (`POST /api/login`) and then rides a
-signed, HttpOnly **session cookie** (default 1h) instead of re-sending
-credentials on every request. The static shell (HTML/JS/CSS, no data) is public
-so the login form can load; all data lives behind `/api/*`. API clients / CI may
-still authenticate with **HTTP Basic** on each request (`roleForRequest` accepts
-either a valid session cookie or a Basic header).
+**server-side session** (`@fastify/session`, in-memory store; the `evv_session`
+cookie holds only the opaque session id, data lives server-side) instead of
+re-sending credentials on every request. `POST /api/logout` truly invalidates the
+session. The static shell (HTML/JS/CSS, no data) is public so the login form can
+load; all data lives behind `/api/*`. API clients / CI may still authenticate
+with **HTTP Basic** on each request (`roleForRequest` accepts a live session or a
+Basic header). Sessions are in-memory, so a restart logs everyone out.
 
 ## Layout
 
 Backend (`src/`):
-- `server.js` — HTTP server: serves the static frontend and a JSON API under
-  `/api/*`. Enforces roles, handles add/delete/refresh of endpoints.
+- `app.js` — `buildApp()` Fastify factory: registers `@fastify/cookie` +
+  `@fastify/session` + `@fastify/static`, the role-based `requireRole(min)`
+  preHandler and `roleForRequest` (session or Basic), and all `/api/*` routes.
+  Exported (no listen) so tests drive it via `app.inject()`.
+- `server.js` — entry point: builds the app, runs startup side-effects
+  (`ensureConfig`, cron schedule, initial refresh) and `app.listen()`.
 - `fetcher.js` — fetches an `_about` URL (http/https, redirects, timeout) and
   `summarize()`s it into `version`, `renderservice`, `rs2`, `services`,
   `features`, `plugins`, `raw`.
@@ -44,8 +51,8 @@ Backend (`src/`):
   `matches`, `scheduleCron`). Evaluates once per minute.
 - `url.js` — `normalizeAboutUrl()` turns pasted input into an
   `/edu-sharing/rest/_about` URL; `deriveLabel()` for a default label.
-- `auth.js` — HTTP Basic parsing + constant-time role resolver, plus
-  cookie parsing and signed (HMAC) session-token sign/verify for the cookie login.
+- `auth.js` — HTTP Basic parsing + constant-time role resolver
+  (`makeAuthenticator`/`roleFor`). Sessions are handled by `@fastify/session`.
 
 Frontend (`public/`, vanilla JS, no framework/build):
 - `index.html` — header, admin panel (add/refresh, admins only), sort toolbar,
@@ -103,7 +110,7 @@ Other: `Dockerfile`, `docker-compose*.yml`, `.github/workflows/ci.yml`
     `VIEWER_USER`/`VIEWER_PASSWORD`, `DATA_DIR` (default `/data`),
     `CRON_SCHEDULE` (default `*/15 * * * *`), `REQUEST_TIMEOUT_MS`,
     `FAIL_THRESHOLD`, `IP_RANGES_FILE` (default `<DATA_DIR>/ip-ranges.conf`),
-    `SESSION_SECRET` (HMAC key for the login cookie; random per process if
-    unset — set it in prod / across replicas), `SESSION_TTL_SECONDS`
-    (default 3600). An account with an empty password is disabled.
+    `SESSION_SECRET` (signs the session-id cookie, ≥32 chars; random per process
+    if unset → restart logs everyone out), `SESSION_TTL_SECONDS` (default 3600).
+    An account with an empty password is disabled.
 - Test: `npm test` (`node --test`).
