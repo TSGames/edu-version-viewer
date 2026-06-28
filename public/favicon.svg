@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="12 12 80 80" role="img" aria-label="edu-sharing Repo Viewer">
-  <!-- Same hexagon mark as the logo, with a green status dot so the favicon
-       stands out from the plain edu-sharing icon. -->
-  <polygon points="50,30 41,45.59 23,45.59 14,30 23,14.41 41,14.41" fill="#a7c4d2" />
-  <polygon points="77,45.59 68,61.18 50,61.18 41,45.59 50,30 68,30" fill="#4d7d96" />
-  <polygon points="50,61.18 41,76.77 23,76.77 14,61.18 23,45.59 41,45.59" fill="#234a5e" />
-  <circle cx="76" cy="76" r="15" fill="#ffffff" />
-  <circle cx="76" cy="76" r="11" fill="#1f9d63" />
-</svg>
