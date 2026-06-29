@@ -11,6 +11,7 @@ const els = {
   cronInfo: document.getElementById('cron-info'),
   whoami: document.getElementById('whoami'),
   sortBy: document.getElementById('sort-by'),
+  search: document.getElementById('search'),
   viewToggle: document.getElementById('view-toggle'),
   login: document.getElementById('login'),
   loginForm: document.getElementById('login-form'),
@@ -388,6 +389,8 @@ function compareVersion(a, b) {
 
 // Problems first, then pending, then ok.
 const STATUS_RANK = { error: 0, pending: 1, ok: 2 };
+// Lifecycle order; unset/unknown sorts last.
+const REPO_TYPE_RANK = { dev: 0, staging: 1, prod: 2 };
 
 function sortEndpoints(list) {
   const by = els.sortBy ? els.sortBy.value : 'label';
@@ -403,12 +406,34 @@ function sortEndpoints(list) {
         );
       case 'version':
         return compareVersion(a.version, b.version);
+      case 'repoType':
+        return (
+          (REPO_TYPE_RANK[a.repoType] ?? 9) - (REPO_TYPE_RANK[b.repoType] ?? 9) ||
+          String(a.label || hostOf(a.url)).localeCompare(String(b.label || hostOf(b.url)))
+        );
       case 'label':
       default:
         return String(a.label || hostOf(a.url)).localeCompare(String(b.label || hostOf(b.url)));
     }
   });
   return arr;
+}
+
+// Live search: match the query against label, URL or any connected repo title.
+function filterEndpoints(list) {
+  const q = (els.search ? els.search.value : '').trim().toLowerCase();
+  if (!q) return list;
+  return list.filter((e) => {
+    if (String(e.label || '').toLowerCase().includes(q)) return true;
+    if (String(e.url || '').toLowerCase().includes(q)) return true;
+    if (
+      Array.isArray(e.repositories) &&
+      e.repositories.some((r) => String(r && r.title ? r.title : '').toLowerCase().includes(q))
+    ) {
+      return true;
+    }
+    return false;
+  });
 }
 
 // Compact, scannable table. One row per endpoint plus an admin actions column;
@@ -499,6 +524,10 @@ function openListEdit(tbody, tr, e) {
   openEditForm(td, e);
 }
 
+// The most recently fetched endpoints; render() filters/sorts these without
+// re-fetching, so search and sort are instant and survive the auto-refresh.
+let lastEndpoints = [];
+
 async function loadEndpoints() {
   try {
     const res = await fetch('/api/endpoints');
@@ -507,26 +536,38 @@ async function loadEndpoints() {
       return;
     }
     const data = await res.json();
-    const openState = captureOpenState();
-    els.cards.classList.toggle('list-mode', view === 'list');
-    els.cards.innerHTML = '';
-    if (!data.endpoints || data.endpoints.length === 0) {
-      els.cards.innerHTML =
-        '<div class="muted">Noch keine Endpunkte. Als Admin anmelden und hinzufügen.</div>';
-      return;
-    }
-    const sorted = sortEndpoints(data.endpoints);
-    if (view === 'list') {
-      els.cards.appendChild(renderList(sorted));
-    } else {
-      for (const e of sorted) {
-        els.cards.appendChild(renderCard(e));
-      }
-    }
-    restoreOpenState(openState);
+    lastEndpoints = data.endpoints || [];
+    renderEndpoints();
   } catch {
     els.cards.innerHTML = '<div class="error-text">Konnte Endpunkte nicht laden.</div>';
   }
+}
+
+// Render lastEndpoints applying the current search filter and sort order.
+function renderEndpoints() {
+  const openState = captureOpenState();
+  els.cards.classList.toggle('list-mode', view === 'list');
+  els.cards.innerHTML = '';
+  if (lastEndpoints.length === 0) {
+    els.cards.innerHTML =
+      '<div class="muted">Noch keine Endpunkte. Als Admin anmelden und hinzufügen.</div>';
+    return;
+  }
+  const filtered = filterEndpoints(lastEndpoints);
+  if (filtered.length === 0) {
+    const q = els.search ? els.search.value.trim() : '';
+    els.cards.innerHTML = `<div class="muted">Keine Treffer für „${escapeHtml(q)}“.</div>`;
+    return;
+  }
+  const sorted = sortEndpoints(filtered);
+  if (view === 'list') {
+    els.cards.appendChild(renderList(sorted));
+  } else {
+    for (const e of sorted) {
+      els.cards.appendChild(renderCard(e));
+    }
+  }
+  restoreOpenState(openState);
 }
 
 // ---------- admin actions ----------
@@ -703,7 +744,8 @@ els.newUrl.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') addEndpoint();
 });
 els.refreshAllBtn.addEventListener('click', refreshAll);
-els.sortBy.addEventListener('change', loadEndpoints);
+els.sortBy.addEventListener('change', renderEndpoints);
+els.search.addEventListener('input', renderEndpoints);
 els.loginForm.addEventListener('submit', doLogin);
 els.logoutBtn.addEventListener('click', doLogout);
 
@@ -719,7 +761,7 @@ els.viewToggle.addEventListener('click', (ev) => {
   view = btn.dataset.view;
   localStorage.setItem('view', view);
   updateViewToggle();
-  loadEndpoints();
+  renderEndpoints();
 });
 updateViewToggle();
 

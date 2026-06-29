@@ -134,6 +134,12 @@ main {
   flex: 1 1 auto;
 }
 
+/* Live search field; fixed-ish width so it doesn't stretch the toolbar. */
+.search {
+  flex: 0 1 260px;
+  min-width: 160px;
+}
+
 /* Segmented Karten/Liste switch. */
 .view-toggle {
   display: inline-flex;
