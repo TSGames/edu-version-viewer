@@ -25,6 +25,13 @@ jobs:
         run: npm ci
       - name: Run tests
         run: node --test
+      # Report-only coverage on the newer Node (uses flags added in Node 22).
+      - name: Coverage report
+        if: matrix.node == 22
+        run: |
+          node --test --experimental-test-coverage \
+            --test-coverage-exclude='node_modules/**' \
+            --test-coverage-exclude='test/**'
 
   docker:
     runs-on: ubuntu-latest
