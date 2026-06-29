@@ -71,6 +71,10 @@ spec:
                   name: {{ include "edu-version-viewer.secretName" . }}
                   key: {{ .Values.auth.sessionSecretKey }}
                   optional: true
+            {{- if .Values.ipRanges }}
+            - name: IP_RANGES_FILE
+              value: /config/ip-ranges.conf
+            {{- end }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
@@ -80,6 +84,11 @@ spec:
           volumeMounts:
             - name: data
               mountPath: {{ .Values.config.dataDir }}
+            {{- if .Values.ipRanges }}
+            - name: ipranges
+              mountPath: /config
+              readOnly: true
+            {{- end }}
       volumes:
         - name: data
           {{- if .Values.persistence.enabled }}
@@ -88,6 +97,11 @@ spec:
           {{- else }}
           emptyDir: {}
           {{- end }}
+        {{- if .Values.ipRanges }}
+        - name: ipranges
+          configMap:
+            name: {{ include "edu-version-viewer.fullname" . }}-ipranges
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

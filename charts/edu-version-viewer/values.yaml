@@ -65,6 +65,13 @@ config:
   # Session lifetime (seconds). Default matches the app default (1h).
   sessionTtlSeconds: "3600"
 
+# IP range -> tag mappings for automatic network tags. Shipped as a ConfigMap,
+# mounted as ip-ranges.conf and referenced via IP_RANGES_FILE. Format per line:
+# "<range>: <tag>" with <range> a CIDR (134.76.0.0/16) or octet prefix
+# (134.76 = /16). Leave empty to disable.
+ipRanges: |
+  134.76: GWDG
+
 # Credentials -> rendered into a Secret (unless existingSecret is set).
 # An empty password disables that account (the key is still created).
 auth:

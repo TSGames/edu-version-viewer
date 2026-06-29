@@ -1,0 +1,11 @@
+{{- if .Values.ipRanges }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "edu-version-viewer.fullname" . }}-ipranges
+  labels:
+    {{- include "edu-version-viewer.labels" . | nindent 4 }}
+data:
+  ip-ranges.conf: |-
+    {{- .Values.ipRanges | nindent 4 }}
+{{- end }}

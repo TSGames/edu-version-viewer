@@ -59,6 +59,7 @@ normally do not set it.
 | `auth.existingSecret` | `""` | Use a pre-created Secret instead |
 | `auth.sessionSecret` | `""` | Signs the session cookie; empty = random per pod (logins drop on restart) |
 | `config.sessionTtlSeconds` | `3600` | Session lifetime (1 h) |
+| `ipRanges` | `134.76: GWDG` | IP range → tag mappings (auto network tags); empty = off |
 | `config.cronSchedule` | `0 */2 * * *` | Poll schedule (every 2 h) |
 | `config.requestTimeoutMs` | `10000` | Per-endpoint fetch timeout |
 | `config.failThreshold` | `2` | Consecutive failures before `error` |
