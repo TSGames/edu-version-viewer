@@ -47,7 +47,10 @@ Backend (`src/`):
   endpoint; each endpoint's latest fetch result (incl. the large `raw` blob)
   lives in `fetches/<id>.json`. `ensureConfig()` migrates a legacy single-file
   `config.json` into this layout and prunes orphaned fetch files. Merged views
-  via `loadMerged()` / `loadMergedOne()`.
+  via `loadMerged()` / `loadMergedOne()`. Before every content-changing
+  `saveConfig()` the previous `config.json` is copied to
+  `backups/config-<iso>-<nnn>.json`; only the newest 10 are kept (no-op
+  rewrites, e.g. at startup, don't create a backup).
 - `cron.js` — minimal 5-field cron parser + scheduler (`parseCron`,
   `matches`, `scheduleCron`). Evaluates once per minute.
 - `url.js` — `normalizeAboutUrl()` turns pasted input into an

@@ -5,7 +5,8 @@
 //                          { endpoints: [{ id, label, publicName, url, addedAt,
 //                            notes, pwLink, repoType, hosting, showInApp,
 //                            showInBrowserPlugin }] }
-//                          written only on add / delete / rename.
+//                          written only on add / delete / edit; the previous
+//                          version is copied to backups/ first (last 10 kept).
 //   - fetches/<id>.json    the latest fetch result per endpoint:
 //                          { lastSync, lastStatus, error, lastError, failCount,
 //                            version, renderservice, rs2, services,
@@ -20,6 +21,9 @@ import path from 'node:path';
 const DATA_DIR = process.env.DATA_DIR || '/data';
 const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
 const FETCH_DIR = path.join(DATA_DIR, 'fetches');
+// Rolling copies of config.json taken before every change to it.
+const BACKUP_DIR = path.join(DATA_DIR, 'backups');
+const BACKUP_KEEP = 10;
 // IP-range -> tag mappings for automatic network/organisation tagging.
 const IP_RANGES_PATH = process.env.IP_RANGES_FILE || path.join(DATA_DIR, 'ip-ranges.conf');
 
@@ -64,6 +68,10 @@ export function getConfigPath() {
 
 export function getFetchDir() {
   return FETCH_DIR;
+}
+
+export function getBackupDir() {
+  return BACKUP_DIR;
 }
 
 export function getIpRangesPath() {
@@ -143,7 +151,44 @@ export async function loadConfig() {
 
 export async function saveConfig(config) {
   const clean = { endpoints: (config.endpoints || []).map(pickConfig) };
-  await atomicWrite(CONFIG_PATH, JSON.stringify(clean, null, 2));
+  const text = JSON.stringify(clean, null, 2);
+  await backupConfig(text);
+  await atomicWrite(CONFIG_PATH, text);
+}
+
+// Copy the current config.json to backups/config-<timestamp>.json before it is
+// overwritten, then keep only the newest BACKUP_KEEP copies. Skipped when there
+// is no config yet or the content would not change (e.g. the startup rewrite).
+async function backupConfig(nextText) {
+  let current;
+  try {
+    current = await fs.readFile(CONFIG_PATH, 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return;
+    throw err;
+  }
+  if (current === nextText) return;
+
+  await fs.mkdir(BACKUP_DIR, { recursive: true });
+  // ISO timestamp + zero-padded counter (for same-ms collisions) keeps the
+  // names sorting chronologically: config-<iso>-000.json, -001, ...
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  for (let n = 0; ; n++) {
+    const file = path.join(BACKUP_DIR, `config-${stamp}-${String(n).padStart(3, '0')}.json`);
+    try {
+      await fs.writeFile(file, current, { encoding: 'utf8', flag: 'wx' });
+      break;
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err;
+    }
+  }
+
+  const backups = (await fs.readdir(BACKUP_DIR))
+    .filter((f) => f.startsWith('config-') && f.endsWith('.json'))
+    .sort();
+  for (const old of backups.slice(0, -BACKUP_KEEP)) {
+    await fs.unlink(path.join(BACKUP_DIR, old)).catch(() => {});
+  }
 }
 
 // ---------- fetch results (per endpoint) ----------

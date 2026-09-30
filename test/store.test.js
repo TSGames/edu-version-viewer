@@ -1,6 +1,6 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, readFileSync, readdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -108,4 +108,28 @@ test('ensureConfig migrates legacy inline fetch fields and prunes orphans', asyn
   const cfg = JSON.parse(readFileSync(store.getConfigPath(), 'utf8'));
   assert.equal('version' in cfg.endpoints[0], false); // config stripped to durable fields
   assert.equal(existsSync(path.join(store.getFetchDir(), 'orphan.json')), false); // pruned
+});
+
+test('saveConfig backs up the previous config, skips no-ops, keeps the last 10', async () => {
+  rmSync(store.getBackupDir(), { recursive: true, force: true });
+  const list = () => (existsSync(store.getBackupDir()) ? readdirSync(store.getBackupDir()).sort() : []);
+  const cfg = (label) => ({ endpoints: [{ id: 'x', label, url: 'http://x/_about' }] });
+
+  await store.saveConfig(cfg('v0'));
+  const before = list().length;
+  await store.saveConfig(cfg('v0')); // unchanged content -> no backup
+  assert.equal(list().length, before);
+
+  await store.saveConfig(cfg('v1'));
+  const newest = list().at(-1);
+  const saved = JSON.parse(readFileSync(path.join(store.getBackupDir(), newest), 'utf8'));
+  assert.equal(saved.endpoints[0].label, 'v0'); // backup holds the PREVIOUS content
+
+  for (let i = 2; i < 15; i++) await store.saveConfig(cfg('v' + i));
+  const files = list();
+  assert.equal(files.length, 10);
+  const last = JSON.parse(readFileSync(path.join(store.getBackupDir(), files.at(-1)), 'utf8'));
+  assert.equal(last.endpoints[0].label, 'v13');
+  const first = JSON.parse(readFileSync(path.join(store.getBackupDir(), files[0]), 'utf8'));
+  assert.equal(first.endpoints[0].label, 'v4'); // oldest ones pruned
 });
