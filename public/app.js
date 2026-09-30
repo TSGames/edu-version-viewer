@@ -104,7 +104,7 @@ function metaBadgesHtml(e) {
     out += `<span class="badge visible" title="Wird in der App angezeigt">📱 App</span>`;
   }
   if (e.showInBrowserPlugin) {
-    out += `<span class="badge visible" title="Wird im Browser-Plugin angezeigt">🧩 Plugin</span>`;
+    out += `<span class="badge visible" title="Wird im Browserplugin angezeigt">🧩 Browserplugin</span>`;
   }
   if (Array.isArray(e.networkTags)) {
     const ipTitle = e.resolvedIp ? ` (${e.resolvedIp})` : '';
@@ -235,12 +235,12 @@ function openEditForm(card, e) {
     <label class="edit-field">Label
       <input class="edit-label" type="text" value="${escapeHtml(e.label || '')}" />
     </label>
-    <label class="edit-field">Öffentlicher Name (App / Browser-Plugin; leer = Label)
+    <label class="edit-field">Öffentlicher Name (App / Browserplugin; leer = Label)
       <input class="edit-publicname" type="text" placeholder="${escapeHtml(e.label || '')}" value="${escapeHtml(e.publicName || '')}" />
     </label>
     <div class="edit-checks">
       <label><input class="edit-showapp" type="checkbox"${e.showInApp ? ' checked' : ''} /> In App anzeigen</label>
-      <label><input class="edit-showplugin" type="checkbox"${e.showInBrowserPlugin ? ' checked' : ''} /> Im Browser-Plugin anzeigen</label>
+      <label><input class="edit-showplugin" type="checkbox"${e.showInBrowserPlugin ? ' checked' : ''} /> Im Browserplugin anzeigen</label>
     </div>
     <label class="edit-field">Repository-Typ
       <select class="edit-repotype">${classOptions(REPO_TYPE_LABELS, e.repoType)}</select>

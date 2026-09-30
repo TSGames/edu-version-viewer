@@ -90,7 +90,9 @@ Other: `Dockerfile`, `docker-compose*.yml`, `.github/workflows/ci.yml`
   is **unauthenticated** (CORS `*`, `Cache-Control: max-age=300`) and returns
   only `{ name, url, version }` for flagged endpoints: `name` = `publicName`,
   falling back to `label`; `url` = portal URL (`portalUrl()` in `url.js`);
-  `version` may be `null`. Missing/invalid `target` → 400. Never expose other
+  `version` may be `null`. Optional `minVersion` (e.g. `11.0` → `>= 11.0`,
+  numeric compare via `src/version.js`, unknown versions excluded, invalid →
+  400). Missing/invalid `target` → 400. Never expose other
   fields there.
 - **Connected repositories**: on each successful `_about` fetch a best-effort
   secondary call to `<base>/edu-sharing/rest/network/v1/repositories`

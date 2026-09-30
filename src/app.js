@@ -23,6 +23,7 @@ import {
 import { fetchEndpoint, refreshAll, refreshOne } from './fetcher.js';
 import { normalizeAboutUrl, deriveLabel, portalUrl } from './url.js';
 import { makeAuthenticator } from './auth.js';
+import { versionKey, isAtLeast } from './version.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -146,6 +147,7 @@ export async function buildApp(opts = {}) {
   // Public (unauthenticated) instance list for the app / browser plugin. Only
   // endpoints opted in via the matching flag, and only name/url/version — never
   // notes, links, IPs or raw data. CORS-open since the data is public anyway.
+  // Optional ?minVersion=11.0 keeps only versions >= 11.0 (unknown excluded).
   app.get('/api/public/instances', async (req, reply) => {
     reply.header('Access-Control-Allow-Origin', '*');
     const flag = PUBLIC_TARGETS[req.query.target];
@@ -154,11 +156,16 @@ export async function buildApp(opts = {}) {
         .code(400)
         .send({ error: 'target must be one of: ' + Object.keys(PUBLIC_TARGETS).join(', ') });
     }
+    const { minVersion } = req.query;
+    if (minVersion !== undefined && versionKey(minVersion) == null) {
+      return reply.code(400).send({ error: 'Invalid minVersion' });
+    }
     const endpoints = await loadMerged();
     reply.header('Cache-Control', 'public, max-age=300');
     return {
       instances: endpoints
         .filter((e) => e[flag] === true)
+        .filter((e) => minVersion === undefined || isAtLeast(e.version, minVersion))
         .map((e) => ({
           name: e.publicName || e.label,
           url: portalUrl(e.url),

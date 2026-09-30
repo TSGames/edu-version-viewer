@@ -184,6 +184,13 @@ test('GET /api/public/instances: public, filtered by target, whitelisted fields'
   const base = mockUrl.replace(/\/rest\/_about$/, '');
   assert.deepEqual(res.json(), { instances: [{ name: 'Öffentlich', url: base, version: '9.0' }] });
 
+  // minVersion filter (mock reports 9.0): inclusive, numeric, 400 on garbage.
+  const minOk = await get('/api/public/instances?target=app&minVersion=9.0');
+  assert.equal(minOk.json().instances.length, 1);
+  const minHigh = await get('/api/public/instances?target=app&minVersion=10.0');
+  assert.deepEqual(minHigh.json(), { instances: [] });
+  assert.equal((await get('/api/public/instances?target=app&minVersion=abc')).statusCode, 400);
+
   // Not opted in for the browser plugin -> empty.
   const plugin = await get('/api/public/instances?target=browserPlugin');
   assert.deepEqual(plugin.json(), { instances: [] });
