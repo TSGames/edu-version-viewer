@@ -100,6 +100,12 @@ function metaBadgesHtml(e) {
   if (e.hosting && HOSTING_SHORT[e.hosting]) {
     out += `<span class="badge hosting">${escapeHtml(HOSTING_SHORT[e.hosting])}</span>`;
   }
+  if (e.showInApp) {
+    out += `<span class="badge visible" title="Wird in der App angezeigt">📱 App</span>`;
+  }
+  if (e.showInBrowserPlugin) {
+    out += `<span class="badge visible" title="Wird im Browser-Plugin angezeigt">🧩 Plugin</span>`;
+  }
   if (Array.isArray(e.networkTags)) {
     const ipTitle = e.resolvedIp ? ` (${e.resolvedIp})` : '';
     for (const tag of e.networkTags) {
@@ -219,7 +225,8 @@ function appendAdminButtons(container, e, { refreshLabel, onEdit }) {
   container.appendChild(delBtn);
 }
 
-// Inline editor for an endpoint's label, password link and notes (admin only).
+// Inline editor for an endpoint's label, public name/visibility, classification,
+// password link and notes (admin only).
 function openEditForm(card, e) {
   if (card.querySelector('.edit-form')) return; // already editing
   const form = document.createElement('form');
@@ -228,6 +235,13 @@ function openEditForm(card, e) {
     <label class="edit-field">Label
       <input class="edit-label" type="text" value="${escapeHtml(e.label || '')}" />
     </label>
+    <label class="edit-field">Öffentlicher Name (App / Browser-Plugin; leer = Label)
+      <input class="edit-publicname" type="text" placeholder="${escapeHtml(e.label || '')}" value="${escapeHtml(e.publicName || '')}" />
+    </label>
+    <div class="edit-checks">
+      <label><input class="edit-showapp" type="checkbox"${e.showInApp ? ' checked' : ''} /> In App anzeigen</label>
+      <label><input class="edit-showplugin" type="checkbox"${e.showInBrowserPlugin ? ' checked' : ''} /> Im Browser-Plugin anzeigen</label>
+    </div>
     <label class="edit-field">Repository-Typ
       <select class="edit-repotype">${classOptions(REPO_TYPE_LABELS, e.repoType)}</select>
     </label>
@@ -261,6 +275,9 @@ async function saveEdit(id, form) {
   msg.className = 'edit-msg muted';
   const body = {
     label: form.querySelector('.edit-label').value,
+    publicName: form.querySelector('.edit-publicname').value,
+    showInApp: form.querySelector('.edit-showapp').checked,
+    showInBrowserPlugin: form.querySelector('.edit-showplugin').checked,
     pwLink: form.querySelector('.edit-pw').value,
     notes: form.querySelector('.edit-notes').value,
     repoType: form.querySelector('.edit-repotype').value,

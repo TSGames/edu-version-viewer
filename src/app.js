@@ -21,7 +21,7 @@ import {
   defaultFetch,
 } from './store.js';
 import { fetchEndpoint, refreshAll, refreshOne } from './fetcher.js';
-import { normalizeAboutUrl, deriveLabel } from './url.js';
+import { normalizeAboutUrl, deriveLabel, portalUrl } from './url.js';
 import { makeAuthenticator } from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -32,6 +32,8 @@ const MAX_BODY = 1024 * 1024; // 1 MB
 const REPO_TYPES = ['dev', 'staging', 'prod'];
 const HOSTING_TYPES = ['cluster', 'docker', 'external'];
 const RANK = { viewer: 1, admin: 2 };
+// Public instance list: ?target=<key> -> the endpoint flag it filters on.
+const PUBLIC_TARGETS = { app: 'showInApp', browserPlugin: 'showInBrowserPlugin' };
 
 // Strip the heavy `raw` blob from the list view.
 function summaryOf(e) {
@@ -45,6 +47,13 @@ function normalizeEnum(value, allowed, field) {
   const v = String(value);
   if (!allowed.includes(v)) throw new Error('Invalid ' + field);
   return v;
+}
+
+// Validate an optional boolean flag; null/undefined -> false. Throws on bad input.
+function normalizeBool(value, field) {
+  if (value == null || value === false || value === 'false') return false;
+  if (value === true || value === 'true') return true;
+  throw new Error('Invalid ' + field);
 }
 
 // Normalize an optional link (e.g. password-manager URL). Empty -> ''.
@@ -134,6 +143,30 @@ export async function buildApp(opts = {}) {
 
   app.get('/api/health', async () => ({ ok: true }));
 
+  // Public (unauthenticated) instance list for the app / browser plugin. Only
+  // endpoints opted in via the matching flag, and only name/url/version — never
+  // notes, links, IPs or raw data. CORS-open since the data is public anyway.
+  app.get('/api/public/instances', async (req, reply) => {
+    reply.header('Access-Control-Allow-Origin', '*');
+    const flag = PUBLIC_TARGETS[req.query.target];
+    if (!flag) {
+      return reply
+        .code(400)
+        .send({ error: 'target must be one of: ' + Object.keys(PUBLIC_TARGETS).join(', ') });
+    }
+    const endpoints = await loadMerged();
+    reply.header('Cache-Control', 'public, max-age=300');
+    return {
+      instances: endpoints
+        .filter((e) => e[flag] === true)
+        .map((e) => ({
+          name: e.publicName || e.label,
+          url: portalUrl(e.url),
+          version: e.version ?? null,
+        })),
+    };
+  });
+
   app.get('/api/endpoints', { preHandler: requireRole('viewer') }, async () => {
     const endpoints = await loadMerged();
     return { endpoints: endpoints.map(summaryOf) };
@@ -147,11 +180,13 @@ export async function buildApp(opts = {}) {
     } catch (e) {
       return reply.code(400).send({ error: e.message });
     }
-    let pwLink, repoType, hosting;
+    let pwLink, repoType, hosting, showInApp, showInBrowserPlugin;
     try {
       pwLink = normalizeLink(payload.pwLink);
       repoType = normalizeEnum(payload.repoType, REPO_TYPES, 'repoType');
       hosting = normalizeEnum(payload.hosting, HOSTING_TYPES, 'hosting');
+      showInApp = normalizeBool(payload.showInApp, 'showInApp');
+      showInBrowserPlugin = normalizeBool(payload.showInBrowserPlugin, 'showInBrowserPlugin');
     } catch (e) {
       return reply.code(400).send({ error: e.message });
     }
@@ -162,12 +197,15 @@ export async function buildApp(opts = {}) {
     const endpoint = {
       id: crypto.randomUUID(),
       label: (payload.label && String(payload.label).trim()) || deriveLabel(url),
+      publicName: payload.publicName != null ? String(payload.publicName).trim() : '',
       url,
       addedAt: new Date().toISOString(),
       notes: payload.notes != null ? String(payload.notes) : '',
       pwLink,
       repoType,
       hosting,
+      showInApp,
+      showInBrowserPlugin,
       ...defaultFetch(),
     };
     await fetchEndpoint(endpoint); // fetch immediately so data shows up
@@ -221,6 +259,9 @@ export async function buildApp(opts = {}) {
       const label = String(payload.label).trim();
       if (label) cfg.label = label;
     }
+    if (payload.publicName !== undefined) {
+      cfg.publicName = payload.publicName != null ? String(payload.publicName).trim() : '';
+    }
     if (payload.notes !== undefined) cfg.notes = String(payload.notes);
     try {
       if (payload.pwLink !== undefined) cfg.pwLink = normalizeLink(payload.pwLink);
@@ -229,6 +270,12 @@ export async function buildApp(opts = {}) {
       }
       if (payload.hosting !== undefined) {
         cfg.hosting = normalizeEnum(payload.hosting, HOSTING_TYPES, 'hosting');
+      }
+      if (payload.showInApp !== undefined) {
+        cfg.showInApp = normalizeBool(payload.showInApp, 'showInApp');
+      }
+      if (payload.showInBrowserPlugin !== undefined) {
+        cfg.showInBrowserPlugin = normalizeBool(payload.showInBrowserPlugin, 'showInBrowserPlugin');
       }
     } catch (e) {
       return reply.code(400).send({ error: e.message });

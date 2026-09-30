@@ -2,7 +2,9 @@
 //
 // Data is split into two concerns kept in DATA_DIR:
 //   - config.json          durable user config only:
-//                          { endpoints: [{ id, label, url, addedAt }] }
+//                          { endpoints: [{ id, label, publicName, url, addedAt,
+//                            notes, pwLink, repoType, hosting, showInApp,
+//                            showInBrowserPlugin }] }
 //                          written only on add / delete / rename.
 //   - fetches/<id>.json    the latest fetch result per endpoint:
 //                          { lastSync, lastStatus, error, lastError, failCount,
@@ -24,7 +26,19 @@ const IP_RANGES_PATH = process.env.IP_RANGES_FILE || path.join(DATA_DIR, 'ip-ran
 const EMPTY = { endpoints: [] };
 
 // Durable config fields kept in config.json.
-const CONFIG_FIELDS = ['id', 'label', 'url', 'addedAt', 'notes', 'pwLink', 'repoType', 'hosting'];
+const CONFIG_FIELDS = [
+  'id',
+  'label',
+  'publicName',
+  'url',
+  'addedAt',
+  'notes',
+  'pwLink',
+  'repoType',
+  'hosting',
+  'showInApp',
+  'showInBrowserPlugin',
+];
 // Volatile fetch fields kept in fetches/<id>.json.
 const FETCH_FIELDS = [
   'lastSync',
@@ -85,8 +99,14 @@ function pick(obj, fields) {
   return out;
 }
 
+// Visibility flags for the public instance list default to false (opt-in).
 function pickConfig(ep) {
-  return { ...pick(ep, CONFIG_FIELDS), addedAt: ep.addedAt || null };
+  return {
+    ...pick(ep, CONFIG_FIELDS),
+    addedAt: ep.addedAt || null,
+    showInApp: ep.showInApp === true,
+    showInBrowserPlugin: ep.showInBrowserPlugin === true,
+  };
 }
 
 function fetchPathFor(id) {

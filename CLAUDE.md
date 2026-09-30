@@ -42,7 +42,8 @@ Backend (`src/`):
   `features`, `plugins`, `raw`.
 - `store.js` — persistence in `DATA_DIR` (default `/data`), atomic writes via
   temp file + rename. Split into durable config and volatile fetch data:
-  `config.json` holds only `{ id, label, url, addedAt, notes, pwLink }` per
+  `config.json` holds only the durable fields (`id, label, publicName, url,
+  addedAt, notes, pwLink, repoType, hosting, showInApp, showInBrowserPlugin`) per
   endpoint; each endpoint's latest fetch result (incl. the large `raw` blob)
   lives in `fetches/<id>.json`. `ensureConfig()` migrates a legacy single-file
   `config.json` into this layout and prunes orphaned fetch files. Merged views
@@ -83,6 +84,14 @@ Other: `Dockerfile`, `docker-compose*.yml`, `.github/workflows/ci.yml`
   and `repoType`/`hosting` are validated against an allow-list (invalid → 400,
   empty clears). All shown as badges. The card title links to
   `<origin>/edu-sharing`.
+- **Public instance list**: each endpoint has two opt-in flags `showInApp` /
+  `showInBrowserPlugin` (booleans, **default `false`**, validated → 400) and an
+  optional `publicName`. `GET /api/public/instances?target=app|browserPlugin`
+  is **unauthenticated** (CORS `*`, `Cache-Control: max-age=300`) and returns
+  only `{ name, url, version }` for flagged endpoints: `name` = `publicName`,
+  falling back to `label`; `url` = portal URL (`portalUrl()` in `url.js`);
+  `version` may be `null`. Missing/invalid `target` → 400. Never expose other
+  fields there.
 - **Connected repositories**: on each successful `_about` fetch a best-effort
   secondary call to `<base>/edu-sharing/rest/network/v1/repositories`
   (`repositoriesUrl()` in `url.js`) lists the connected repositories. The home

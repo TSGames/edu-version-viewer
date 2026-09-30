@@ -159,6 +159,46 @@ test('PATCH /api/endpoints/:id: 403 viewer, 200 admin, 400 invalid, 404 unknown'
   assert.equal((await patch(ADMIN, { notes: 'x' }, 'unknown')).statusCode, 404);
 });
 
+test('PATCH visibility flags + publicName: default false, 400 on invalid', async () => {
+  const patch = (body) =>
+    app.inject({ method: 'PATCH', url: '/api/endpoints/' + id, headers: headers(ADMIN, true), payload: body });
+  const before = (await get('/api/endpoints/' + id, ADMIN)).json().endpoint;
+  assert.equal(before.showInApp, false);
+  assert.equal(before.showInBrowserPlugin, false);
+  assert.equal((await patch({ showInApp: 'yes' })).statusCode, 400);
+  const ok = await patch({ showInApp: true, publicName: '  Öffentlich  ' });
+  assert.equal(ok.statusCode, 200);
+  assert.equal(ok.json().endpoint.showInApp, true);
+  assert.equal(ok.json().endpoint.showInBrowserPlugin, false);
+  assert.equal(ok.json().endpoint.publicName, 'Öffentlich');
+});
+
+test('GET /api/public/instances: public, filtered by target, whitelisted fields', async () => {
+  const bad = await get('/api/public/instances');
+  assert.equal(bad.statusCode, 400);
+  assert.equal((await get('/api/public/instances?target=nope')).statusCode, 400);
+
+  const res = await get('/api/public/instances?target=app'); // no auth
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.headers['access-control-allow-origin'], '*');
+  const base = mockUrl.replace(/\/rest\/_about$/, '');
+  assert.deepEqual(res.json(), { instances: [{ name: 'Öffentlich', url: base, version: '9.0' }] });
+
+  // Not opted in for the browser plugin -> empty.
+  const plugin = await get('/api/public/instances?target=browserPlugin');
+  assert.deepEqual(plugin.json(), { instances: [] });
+
+  // Empty publicName falls back to the internal label.
+  await app.inject({
+    method: 'PATCH',
+    url: '/api/endpoints/' + id,
+    headers: headers(ADMIN, true),
+    payload: { publicName: '', showInBrowserPlugin: true },
+  });
+  const fallback = await get('/api/public/instances?target=browserPlugin');
+  assert.equal(fallback.json().instances[0].name, 'Mock');
+});
+
 test('POST /api/endpoints/:id/refresh: 403 viewer, 200 admin, 404 unknown', async () => {
   assert.equal((await post('/api/endpoints/' + id + '/refresh', VIEWER)).statusCode, 403);
   assert.equal((await post('/api/endpoints/' + id + '/refresh', ADMIN)).statusCode, 200);

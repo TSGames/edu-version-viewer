@@ -59,6 +59,15 @@ export function repositoriesUrl(aboutUrl) {
   return url.toString();
 }
 
+// Derive the edu-sharing portal URL (<origin>/edu-sharing) from a stored
+// `_about` URL, preserving any path prefix before /edu-sharing.
+export function portalUrl(aboutUrl) {
+  const url = new URL(aboutUrl);
+  const marker = '/edu-sharing';
+  const idx = url.pathname.indexOf(marker);
+  return url.origin + (idx >= 0 ? url.pathname.slice(0, idx + marker.length) : marker);
+}
+
 // Derive a friendly default label from the host (and a path hint if present).
 export function deriveLabel(urlString) {
   try {

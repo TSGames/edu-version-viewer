@@ -37,6 +37,8 @@ test('saveConfig/loadConfig strips fetch fields and defaults addedAt', async () 
   assert.equal(e.repoType, 'prod');
   assert.equal(e.hosting, 'docker');
   assert.equal(e.addedAt, null); // defaulted
+  assert.equal(e.showInApp, false); // visibility flags default to false
+  assert.equal(e.showInBrowserPlugin, false);
   assert.equal('version' in e, false);
   assert.equal('raw' in e, false);
   assert.equal('lastStatus' in e, false);
