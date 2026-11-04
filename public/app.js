@@ -160,6 +160,7 @@ function renderCard(e) {
       ${e.rs2 ? '<span class="badge rs2">RS2</span>' : '<span class="badge">RS1</span>'}
       <span class="badge">Services: ${services.length}</span>
       ${metaBadgesHtml(e)}
+      ${auditBadgesHtml(e)}
     </div>
 
     <div class="muted">Letzter Abgleich: ${escapeHtml(lastSync)}</div>
@@ -529,7 +530,8 @@ function matchesVersionQuery(e, op, ver) {
 // Live search: match the query against label, URL, version or any connected
 // repo title. A query like ">=10.0" compares versions numerically instead.
 function filterEndpoints(list) {
-  const byVersion = list.filter((e) => matchesVersionFilter(e, versionFilter));
+  // Version dropdown + patch-round filter (audits.js) narrow first.
+  const byVersion = list.filter((e) => matchesVersionFilter(e, versionFilter) && matchesAuditFilter(e));
   const q = (els.search ? els.search.value : '').trim().toLowerCase();
   if (!q) return byVersion;
   const vq = q.replace(/\s+/g, '').match(VERSION_QUERY_RE);
@@ -587,8 +589,8 @@ function renderList(list) {
         )}</a> ${pwIcon} ${notesIcon}</div>
         <div class="card-url" title="${escapeHtml(e.url)}">${escapeHtml(e.url)}</div>
         ${
-          metaBadgesHtml(e) + repoCountBadgeHtml(e)
-            ? `<div class="list-meta">${metaBadgesHtml(e)}${repoCountBadgeHtml(e)}</div>`
+          metaBadgesHtml(e) + repoCountBadgeHtml(e) + auditBadgesHtml(e)
+            ? `<div class="list-meta">${metaBadgesHtml(e)}${repoCountBadgeHtml(e)}${auditBadgesHtml(e)}</div>`
             : ''
         }
       </td>
@@ -671,7 +673,7 @@ function renderEndpoints() {
     const q = els.search ? els.search.value.trim() : '';
     els.cards.innerHTML = q
       ? `<div class="muted">Keine Treffer für „${escapeHtml(q)}“.</div>`
-      : '<div class="muted">Keine Endpunkte mit dieser Version.</div>';
+      : '<div class="muted">Keine Endpunkte für diesen Filter.</div>';
     return;
   }
   const sorted = sortEndpoints(filtered);
@@ -700,6 +702,7 @@ function showLogin() {
   els.logoutBtn.classList.add('hidden');
   els.whoami.textContent = '';
   els.adminPanel.classList.add('hidden');
+  resetAudits();
   if (els.loginUser) els.loginUser.focus();
 }
 
@@ -847,6 +850,8 @@ function updateAdminUi() {
   // Admin panel (add/refresh) only for admins; viewers see read-only.
   els.adminPanel.classList.toggle('hidden', !isAdmin());
   loadEndpoints(); // re-render so per-card admin buttons appear/disappear
+  loadAudits(); // patch rounds are admin-only (tab, badges, filter)
+  applyRoute();
 }
 
 // ---------- wiring ----------
@@ -896,4 +901,5 @@ setInterval(() => {
   if (!els.login.classList.contains('hidden')) return; // logged out
   if (els.cards.querySelector('.edit-form')) return;
   loadEndpoints();
+  if (isAdmin() && !auditViewBusy()) loadAudits();
 }, 30000);

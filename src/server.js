@@ -3,6 +3,7 @@
 import { buildApp } from './app.js';
 import { ensureConfig, getConfigPath } from './store.js';
 import { refreshAll } from './fetcher.js';
+import { syncAllAudits } from './audits.js';
 import { scheduleCron } from './cron.js';
 
 const PORT = Number(process.env.PORT || 3000);
@@ -40,7 +41,9 @@ async function start() {
   try {
     scheduleCron(CRON_SCHEDULE, async () => {
       console.log('[cron] refreshing endpoints…');
-      await refreshAll();
+      const { endpoints } = await refreshAll();
+      // Keep open patch-audit rounds in line (new/upgraded/removed instances).
+      await syncAllAudits(endpoints).catch((e) => console.error('[cron] audit sync failed:', e.message));
     });
     console.log('[startup] cron schedule:', CRON_SCHEDULE);
   } catch (e) {

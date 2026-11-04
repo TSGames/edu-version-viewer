@@ -27,3 +27,10 @@ export function isAtLeast(version, min) {
   if (kv == null || km == null) return false;
   return compareKeys(kv, km) >= 0;
 }
+
+// "10.0.3" -> "10.0", "9" -> "9.0"; null when the version is unknown. Patch
+// levels are not reported by _about, so audits work on this base version.
+export function minorOf(v) {
+  const k = versionKey(v);
+  return k ? `${k[0]}.${k[1] || 0}` : null;
+}

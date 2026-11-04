@@ -55,12 +55,21 @@ Backend (`src/`):
   `matches`, `scheduleCron`). Evaluates once per minute.
 - `url.js` — `normalizeAboutUrl()` turns pasted input into an
   `/edu-sharing/rest/_about` URL; `deriveLabel()` for a default label.
+- `audits.js` — patch-audit rounds ("Patch-Runden"): validation, sync against
+  current endpoints, manual entry status, close/reopen, CSV export. Per-round
+  in-process lock (cron sync vs. admin edits).
+- `version.js` — numeric version compare (`versionKey`, `isAtLeast`) and
+  `minorOf()` (base version `N.M`).
 - `auth.js` — HTTP Basic parsing + constant-time role resolver
   (`makeAuthenticator`/`roleFor`). Sessions are handled by `@fastify/session`.
 
 Frontend (`public/`, vanilla JS, no framework/build):
 - `index.html` — header, admin panel (add/refresh, admins only), sort toolbar,
   card grid.
+- `audits.js` — Patch-Runden UI (loaded before `app.js`, shares its globals at
+  call time): hash routing (`#audits`, `#audits/new`, `#audits/<id>`,
+  `#audits/<id>/edit`), overview, form, detail table, two-step close dialog,
+  instance badges and the round filter in the toolbar.
 - `app.js` — fetches `/api/*`, renders cards, admin actions; sorting and
   open-section persistence across the 30s auto-refresh.
 - `style.css` — light theme; all colors are CSS variables in `:root`.
@@ -117,6 +126,25 @@ Other: `Dockerfile`, `docker-compose*.yml`, `.github/workflows/ci.yml`
   fetch fields and rendered as 🌐 badges. Range format is `<range>: <tag>` with
   `<range>` a CIDR (`134.76.0.0/16`) or octet prefix (`134.76` = /16). See
   `ip-ranges.example.conf`. Resolution failures degrade gracefully (no tag).
+- **Patch-Runden (security-patch audits)** — **admin only** (viewers get 403,
+  no tab/badges). `_about` reports no patch level, so a round is defined by
+  manually selected affected **base versions** (`N.M`, plus `unknown`) and an
+  optional `repoTypes` scope; each affected instance's status is set
+  **manually**: `open` / `patched` / `accepted` / `not-affected`, with comment,
+  actor and timestamp (per-entry `log`). Stored one file per round as
+  `audits/<uuid>.json` (id = `crypto.randomUUID()`); every change backs up the
+  previous file to `backups/audit-<uuid>-<iso>-<nnn>.json` (newest 10 per
+  round). Automatic bookkeeping only, on read and after each refresh/cron:
+  newly affected instances are added as `open`; an `open` instance that moves
+  to a non-affected base version becomes `not-affected` (by `system`); deleted
+  endpoints keep their snapshot flagged `removed`. Never auto-`patched`.
+  `dueDate` is optional and never closes a round (overdue only shown). Closing
+  needs a two-step confirmation (UI) and `confirmTitle` == title (API); closed
+  rounds are read-only and frozen (open entries flagged `openAtClose`).
+  Reopening needs no confirmation. Routes: `GET/POST /api/audits`,
+  `GET/PATCH /api/audits/:id`, `PATCH /api/audits/:id/entries/:endpointId`,
+  `POST /api/audits/:id/close|reopen`, `GET /api/audits/:id/export.csv`
+  (semicolon CSV with BOM, formula-injection safe).
 - The periodic refresh re-renders all cards but preserves which `<details>`
   the user had open (keyed by endpoint id + summary label; cards carry a
   `data-id`).

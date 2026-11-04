@@ -39,6 +39,12 @@
           <span class="brand-sub">Repo Viewer</span>
         </span>
       </a>
+      <nav id="tabs" class="tabs hidden" aria-label="Bereiche">
+        <a href="#" data-tab="instances" class="active">Instanzen</a>
+        <a href="#audits" data-tab="audits"
+          >Patch-Runden <span id="tab-audit-count" class="count hidden"></span
+        ></a>
+      </nav>
       <div class="header-actions">
         <span id="cron-info" class="muted"></span>
         <span id="whoami" class="muted"></span>
@@ -46,6 +52,7 @@
       </div>
     </header>
 
+    <div id="view-instances">
     <section id="admin-panel" class="panel hidden">
       <div class="row">
         <input
@@ -74,6 +81,7 @@
       <select id="version-filter" aria-label="Nach Version filtern">
         <option value="">Alle Versionen</option>
       </select>
+      <select id="audit-filter" class="hidden" aria-label="Nach Patch-Runde filtern"></select>
       <input
         id="search"
         type="search"
@@ -91,7 +99,13 @@
     </div>
 
     <main id="cards"></main>
+    </div>
 
+    <!-- Patch-audit rounds (admin only), rendered by audits.js -->
+    <section id="view-audits" class="hidden"></section>
+    <div id="modal" class="overlay hidden"></div>
+
+    <script src="/audits.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>

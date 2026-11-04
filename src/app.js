@@ -24,6 +24,18 @@ import { fetchEndpoint, refreshAll, refreshOne } from './fetcher.js';
 import { normalizeAboutUrl, deriveLabel, portalUrl } from './url.js';
 import { makeAuthenticator } from './auth.js';
 import { versionKey, isAtLeast } from './version.js';
+import {
+  AuditError,
+  listAudits,
+  getAudit,
+  createAudit,
+  updateAudit,
+  setEntry,
+  closeAudit,
+  reopenAudit,
+  auditCsv,
+  syncAllAudits,
+} from './audits.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -224,6 +236,7 @@ export async function buildApp(opts = {}) {
 
   app.post('/api/refresh', { preHandler: requireRole('admin') }, async () => {
     const config = await refreshAll();
+    await syncAllAudits(config.endpoints);
     return { endpoints: config.endpoints.map(summaryOf) };
   });
 
@@ -309,6 +322,82 @@ export async function buildApp(opts = {}) {
       if (!endpoint) return reply.code(404).send({ error: 'Not found' });
       return { endpoint: summaryOf(endpoint) };
     }
+  );
+
+  // ---------- patch-audit rounds (admin only) ----------
+
+  const actorOf = (req) =>
+    (req.session && req.session.user) || userForRole(app.roleForRequest(req));
+  // Map AuditError -> its status, anything else to the generic handler.
+  const auditRoute = (fn) => async (req, reply) => {
+    try {
+      return await fn(req, reply);
+    } catch (e) {
+      if (e instanceof AuditError) return reply.code(e.statusCode).send({ error: e.message });
+      throw e;
+    }
+  };
+  const admin = { preHandler: requireRole('admin') };
+
+  app.get('/api/audits', admin, async () => ({ audits: await listAudits() }));
+
+  app.post(
+    '/api/audits',
+    admin,
+    auditRoute(async (req, reply) => {
+      const audit = await createAudit(req.body || {}, actorOf(req));
+      return reply.code(201).send({ audit });
+    })
+  );
+
+  app.get(
+    '/api/audits/:id',
+    admin,
+    auditRoute(async (req, reply) => {
+      const audit = await getAudit(req.params.id);
+      if (!audit) return reply.code(404).send({ error: 'Not found' });
+      return { audit };
+    })
+  );
+
+  app.patch(
+    '/api/audits/:id',
+    admin,
+    auditRoute(async (req) => ({ audit: await updateAudit(req.params.id, req.body || {}, actorOf(req)) }))
+  );
+
+  app.patch(
+    '/api/audits/:id/entries/:endpointId',
+    admin,
+    auditRoute(async (req) => ({
+      audit: await setEntry(req.params.id, req.params.endpointId, req.body || {}, actorOf(req)),
+    }))
+  );
+
+  app.post(
+    '/api/audits/:id/close',
+    admin,
+    auditRoute(async (req) => ({ audit: await closeAudit(req.params.id, req.body || {}, actorOf(req)) }))
+  );
+
+  app.post(
+    '/api/audits/:id/reopen',
+    admin,
+    auditRoute(async (req) => ({ audit: await reopenAudit(req.params.id, actorOf(req)) }))
+  );
+
+  app.get(
+    '/api/audits/:id/export.csv',
+    admin,
+    auditRoute(async (req, reply) => {
+      const audit = await getAudit(req.params.id);
+      if (!audit) return reply.code(404).send({ error: 'Not found' });
+      const name = 'patch-runde-' + audit.title.replace(/[^\w.-]+/g, '_').slice(0, 60) + '.csv';
+      return reply
+        .header('content-type', 'text/csv; charset=utf-8')
+        .header('content-disposition', `attachment; filename="${name}"`)
+        .send('\uFEFF' + auditCsv(audit));
+    })
   );
 
   // ---------- static shell (public; no data) ----------

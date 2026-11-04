@@ -12,6 +12,8 @@
 //                            version, renderservice, rs2, services,
 //                            features, plugins, raw }
 //                          written on every fetch, independently per endpoint.
+//   - audits/<uuid>.json   one security-patch audit round each (see audits.js);
+//                          previous version backed up like config.json.
 //
 // This keeps the (potentially large) raw `_about` blobs out of the config and
 // avoids rewriting every endpoint's data on each refresh.
@@ -24,6 +26,8 @@ const FETCH_DIR = path.join(DATA_DIR, 'fetches');
 // Rolling copies of config.json taken before every change to it.
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 const BACKUP_KEEP = 10;
+// Patch-audit rounds, one JSON file per round: audits/<uuid>.json.
+const AUDIT_DIR = path.join(DATA_DIR, 'audits');
 // IP-range -> tag mappings for automatic network/organisation tagging.
 const IP_RANGES_PATH = process.env.IP_RANGES_FILE || path.join(DATA_DIR, 'ip-ranges.conf');
 
@@ -160,9 +164,15 @@ export async function saveConfig(config) {
 // overwritten, then keep only the newest BACKUP_KEEP copies. Skipped when there
 // is no config yet or the content would not change (e.g. the startup rewrite).
 async function backupConfig(nextText) {
+  await backupFile(CONFIG_PATH, 'config-', nextText);
+}
+
+// Generic rolling backup: copy `file` to backups/<prefix><timestamp>.json unless
+// it doesn't exist yet or is unchanged; keep the newest BACKUP_KEEP per prefix.
+async function backupFile(file, prefix, nextText) {
   let current;
   try {
-    current = await fs.readFile(CONFIG_PATH, 'utf8');
+    current = await fs.readFile(file, 'utf8');
   } catch (err) {
     if (err.code === 'ENOENT') return;
     throw err;
@@ -171,24 +181,70 @@ async function backupConfig(nextText) {
 
   await fs.mkdir(BACKUP_DIR, { recursive: true });
   // ISO timestamp + zero-padded counter (for same-ms collisions) keeps the
-  // names sorting chronologically: config-<iso>-000.json, -001, ...
+  // names sorting chronologically: <prefix><iso>-000.json, -001, ...
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   for (let n = 0; ; n++) {
-    const file = path.join(BACKUP_DIR, `config-${stamp}-${String(n).padStart(3, '0')}.json`);
+    const target = path.join(BACKUP_DIR, `${prefix}${stamp}-${String(n).padStart(3, '0')}.json`);
     try {
-      await fs.writeFile(file, current, { encoding: 'utf8', flag: 'wx' });
+      await fs.writeFile(target, current, { encoding: 'utf8', flag: 'wx' });
       break;
     } catch (err) {
       if (err.code !== 'EEXIST') throw err;
     }
   }
 
+  // Only names that are <prefix> + timestamp; "config-" must not match
+  // audit backups and vice versa.
   const backups = (await fs.readdir(BACKUP_DIR))
-    .filter((f) => f.startsWith('config-') && f.endsWith('.json'))
+    .filter((f) => f.startsWith(prefix) && /^\d{4}-/.test(f.slice(prefix.length)) && f.endsWith('.json'))
     .sort();
   for (const old of backups.slice(0, -BACKUP_KEEP)) {
     await fs.unlink(path.join(BACKUP_DIR, old)).catch(() => {});
   }
+}
+
+// ---------- patch audits (one file per round) ----------
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function getAuditDir() {
+  return AUDIT_DIR;
+}
+
+function auditPathFor(id) {
+  if (!UUID_RE.test(String(id))) return null; // ids are UUIDs; never build paths from junk
+  return path.join(AUDIT_DIR, String(id).toLowerCase() + '.json');
+}
+
+export async function loadAudit(id) {
+  const file = auditPathFor(id);
+  return file ? readJson(file) : null;
+}
+
+export async function loadAudits() {
+  let files = [];
+  try {
+    files = await fs.readdir(AUDIT_DIR);
+  } catch (err) {
+    if (err.code === 'ENOENT') return [];
+    throw err;
+  }
+  const out = [];
+  for (const f of files) {
+    if (!f.endsWith('.json')) continue;
+    const a = await loadAudit(f.slice(0, -'.json'.length));
+    if (a) out.push(a);
+  }
+  return out;
+}
+
+// Atomic write with a rolling backup of the previous version of this round.
+export async function saveAudit(audit) {
+  const file = auditPathFor(audit.id);
+  if (!file) throw new Error('Invalid audit id');
+  const text = JSON.stringify(audit, null, 2);
+  await backupFile(file, `audit-${audit.id.toLowerCase()}-`, text);
+  await atomicWrite(file, text);
 }
 
 // ---------- fetch results (per endpoint) ----------
