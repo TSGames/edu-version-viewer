@@ -13,6 +13,7 @@
 // File shape (audits/<uuid>.json):
 // {
 //   id, title, description, link, dueDate ('YYYY-MM-DD' | ''),
+//   notes (free text: new minimum version, git commits / MR links, …),
 //   affected: ['10.0', '9.1', 'unknown'], repoTypes: [] (empty = all),
 //   status: 'open' | 'closed', createdAt, createdBy, updatedAt,
 //   closedAt, closedBy, closeNote,
@@ -32,6 +33,7 @@ const BASE_VERSION_RE = /^\d+\.\d+$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const SYSTEM = 'system';
 const LOG_KEEP = 50; // per-entry change log cap
+const NOTES_MAX = 20000; // round notes (Vermerke)
 
 export class AuditError extends Error {
   constructor(status, message) {
@@ -288,6 +290,7 @@ export async function createAudit(payload, by) {
     id: crypto.randomUUID(),
     title,
     description: str(payload.description),
+    notes: str(payload.notes, NOTES_MAX),
     link: normalizeLink(payload.link),
     dueDate: normalizeDate(payload.dueDate),
     affected: normalizeAffected(payload.affected),
@@ -333,6 +336,7 @@ export function updateAudit(id, payload, by) {
       changed.push('title');
     }
     if (payload.description !== undefined) (a.description = str(payload.description)), changed.push('description');
+    if (payload.notes !== undefined) (a.notes = str(payload.notes, NOTES_MAX)), changed.push('notes');
     if (payload.link !== undefined) (a.link = normalizeLink(payload.link)), changed.push('link');
     if (payload.dueDate !== undefined) (a.dueDate = normalizeDate(payload.dueDate)), changed.push('dueDate');
     if (payload.affected !== undefined) (a.affected = normalizeAffected(payload.affected)), changed.push('affected');

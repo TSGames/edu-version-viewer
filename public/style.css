@@ -1221,3 +1221,40 @@ button.ver small {
   text-transform: uppercase;
   letter-spacing: 0.1em;
 }
+
+/* Round notes ("Vermerke"): free text with clickable links. */
+.audit-notes {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.7rem 0.9rem;
+  margin-top: 0.6rem;
+}
+
+.audit-notes-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.3rem;
+}
+
+.audit-notes-head button {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+.audit-notes-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.audit-notes textarea {
+  width: 100%;
+  font: inherit;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--subtle-bg);
+  color: var(--text);
+  resize: vertical;
+}

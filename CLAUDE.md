@@ -129,7 +129,9 @@ Other: `Dockerfile`, `docker-compose*.yml`, `.github/workflows/ci.yml`
 - **Patch-Runden (security-patch audits)** — **admin only** (viewers get 403,
   no tab/badges). `_about` reports no patch level, so a round is defined by
   manually selected affected **base versions** (`N.M`, plus `unknown`) and an
-  optional `repoTypes` scope; each affected instance's status is set
+  optional `repoTypes` scope, plus free-text `notes` ("Vermerke", e.g. new
+  minimum version, git commit/MR links; URLs rendered clickable, editable
+  inline on the detail page while open); each affected instance's status is set
   **manually**: `open` / `patched` / `accepted` / `not-affected`, with comment,
   actor and timestamp (per-entry `log`). Stored one file per round as
   `audits/<uuid>.json` (id = `crypto.randomUUID()`); every change backs up the

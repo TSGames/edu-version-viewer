@@ -138,7 +138,7 @@ test('manual status per instance with comment and actor', async () => {
 
 test('list returns summaries with counts and status map', async () => {
   const res = await req('GET', '/api/audits', ADMIN);
-  const [s] = res.json().audits;
+  const s = res.json().audits.find((x) => x.id === auditId);
   assert.equal(s.id, auditId);
   assert.equal(s.entries, undefined);
   assert.equal(s.statusById[ids.a], 'patched');
@@ -162,6 +162,18 @@ test('auto: newly affected instance is added; edited affected list applies', asy
   const res = await req('PATCH', `/api/audits/${auditId}`, ADMIN, { affected: ['10.0', '9.1', '10.1'] });
   assert.equal(res.statusCode, 200);
   assert.equal(res.json().audit.entries[ids.c].status, 'open');
+});
+
+test('round notes (Vermerke): set on create/edit, logged in history', async () => {
+  const res = await req('PATCH', `/api/audits/${auditId}`, ADMIN, {
+    notes: 'Mindestversion jetzt 10.0-sp3\nhttps://git.example/commit/abc123',
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  const a = res.json().audit;
+  assert.match(a.notes, /10\.0-sp3\nhttps:\/\/git\.example/);
+  assert.equal(a.history.at(-1).note, 'notes');
+  const created = await req('POST', '/api/audits', ADMIN, { title: 'N', affected: ['9.0'], notes: 'x' });
+  assert.equal(created.json().audit.notes, 'x');
 });
 
 test('close requires matching title; closed round is read-only', async () => {
@@ -198,7 +210,7 @@ test('reopen without confirmation, then editable again', async () => {
   assert.equal(a.entries[ids.b].openAtClose, undefined);
   assert.deepEqual(
     a.history.map((h) => h.action),
-    ['created', 'edited', 'closed', 'reopened']
+    ['created', 'edited', 'edited', 'closed', 'reopened']
   );
   assert.equal((await req('POST', `/api/audits/${auditId}/reopen`, ADMIN)).statusCode, 409);
 });

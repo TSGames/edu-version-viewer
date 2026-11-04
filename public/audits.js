@@ -74,6 +74,17 @@ function dueLabel(a) {
   return `Ziel: ${fmtDate(a.dueDate)} (${left === 0 ? 'heute' : 'in ' + left + ' Tagen'})`;
 }
 
+// Escape text and turn http(s) URLs into links (opened in a new tab).
+// Line breaks are kept via CSS (white-space: pre-wrap).
+function linkify(text) {
+  // Stop at whitespace, '<' and (escaped) quotes so a URL never swallows them.
+  return escapeHtml(text || '').replace(/https?:\/\/(?:(?!&quot;|&#39;)[^\s<])+/g, (m) => {
+    const trail = m.match(/[.,;:!?)\]]+$/);
+    const url = trail ? m.slice(0, -trail[0].length) : m;
+    return `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>${trail ? trail[0] : ''}`;
+  });
+}
+
 function pill(status) {
   const s = AUDIT_STATUS[status] || { label: status, cls: '' };
   return `<span class="pill ${s.cls}">${escapeHtml(s.label)}</span>`;
@@ -228,7 +239,12 @@ window.addEventListener('hashchange', () => {
 // True while the audits view holds unsaved input (skip auto-refresh re-render).
 function auditViewBusy() {
   const m = currentRoute().mode;
-  return m === 'new' || m === 'edit' || !auditEls.modal.classList.contains('hidden');
+  return (
+    m === 'new' ||
+    m === 'edit' ||
+    !!auditEls.auditsView.querySelector('.notes-input') ||
+    !auditEls.modal.classList.contains('hidden')
+  );
 }
 
 // ---------- views ----------
@@ -334,6 +350,7 @@ function renderAuditForm(root, audit) {
           <label class="fld">Titel<input name="title" required maxlength="300"></label>
           <label class="fld">Advisory / Ticket-Link<input name="link" placeholder="https://…"></label>
           <label class="fld span2">Beschreibung<textarea name="description" rows="2"></textarea></label>
+          <label class="fld span2">Vermerke <span class="muted">(z. B. neue Mindestversion, Git-Commits / MRs, Links – URLs werden klickbar)</span><textarea name="notes" rows="3"></textarea></label>
           <label class="fld">Zieldatum <span class="muted">(optional – Runde bleibt auch danach offen)</span><input name="dueDate" type="date"></label>
           <div class="fld">Umfang <span class="muted">(nichts gewählt = alle Typen)</span>
             <div class="scope-checks">
@@ -368,6 +385,7 @@ function renderAuditForm(root, audit) {
   form.title.value = audit ? audit.title : '';
   form.link.value = audit ? audit.link : '';
   form.description.value = audit ? audit.description : '';
+  form.notes.value = audit ? audit.notes || '' : '';
   form.dueDate.value = audit ? audit.dueDate : '';
   const vers = form.querySelector('.vers');
   const hint = form.querySelector('.hint');
@@ -452,6 +470,7 @@ function renderAuditForm(root, audit) {
       title: form.title.value,
       link: form.link.value,
       description: form.description.value,
+      notes: form.notes.value,
       dueDate: form.dueDate.value,
       repoTypes: [...form.querySelectorAll('input[name=repoType]:checked')].map((i) => i.value),
       affected: [...selected],
@@ -534,6 +553,15 @@ function renderAuditDetail(root, a) {
             )}</div>`
           : ''
       }
+      <div class="audit-notes">
+        <div class="audit-notes-head">
+          <b>Vermerke</b>
+          ${open ? '<button type="button" class="secondary notes-edit-btn">Bearbeiten</button>' : ''}
+        </div>
+        <div class="audit-notes-text">${
+          a.notes ? linkify(a.notes) : '<span class="muted">Noch keine Vermerke (z. B. neue Mindestversion, Git-Commits / MRs).</span>'
+        }</div>
+      </div>
       <div class="kpis">
         <div class="kpi"><b class="k-open">${c.open}</b>offen</div>
         <div class="kpi"><b class="k-ok">${c.patched}</b>gepatcht</div>
@@ -620,6 +648,9 @@ function renderAuditDetail(root, a) {
     });
   });
 
+  const notesBtn = root.querySelector('.notes-edit-btn');
+  if (notesBtn) notesBtn.addEventListener('click', () => editNotes(root, a));
+
   const closeBtn = root.querySelector('.close-btn');
   if (closeBtn) closeBtn.addEventListener('click', () => openCloseDialog(a, entries));
   const reopenBtn = root.querySelector('.reopen-btn');
@@ -634,6 +665,32 @@ function renderAuditDetail(root, a) {
       }
     });
   }
+}
+
+// Inline editor for the round's Vermerke.
+function editNotes(root, a) {
+  const box = root.querySelector('.audit-notes');
+  box.innerHTML = `
+    <div class="audit-notes-head"><b>Vermerke</b></div>
+    <textarea class="notes-input" rows="5" maxlength="20000"
+      placeholder="z. B. Mindestversion jetzt 10.0-sp3&#10;Fix: https://git.example/edu-sharing/-/commit/abc123"></textarea>
+    <div class="error-text notes-msg"></div>
+    <div class="foot">
+      <button type="button" class="secondary notes-cancel">Abbrechen</button>
+      <button type="button" class="notes-save">Speichern</button>
+    </div>`;
+  const ta = box.querySelector('.notes-input');
+  ta.value = a.notes || '';
+  ta.focus();
+  box.querySelector('.notes-cancel').addEventListener('click', () => renderAuditDetail(root, a));
+  box.querySelector('.notes-save').addEventListener('click', async () => {
+    try {
+      const { audit } = await api('PATCH', '/api/audits/' + encodeURIComponent(a.id), { notes: ta.value });
+      renderAuditDetail(root, audit);
+    } catch (e) {
+      box.querySelector('.notes-msg').textContent = e.message;
+    }
+  });
 }
 
 // ---------- close dialog (two-step confirmation) ----------
