@@ -23,6 +23,10 @@ jobs:
           node-version: ${{ matrix.node }}
       - name: Install dependencies
         run: npm ci
+      # Dedicated, fail-fast gate: every /api route must be classified and
+      # reject missing/invalid credentials (401) and insufficient roles (403).
+      - name: API auth guard tests
+        run: node --test --test-reporter=spec test/api-auth.test.js
       - name: Run tests
         run: node --test
       # Report-only coverage on the newer Node (uses flags added in Node 22).
@@ -44,6 +48,7 @@ jobs:
         run: |
           docker run -d --name evv -p 3000:3000 \
             -e ADMIN_PASSWORD=ci-secret \
+            -e VIEWER_PASSWORD=ci-viewer \
             -e CRON_SCHEDULE="*/15 * * * *" \
             edu-version-viewer:ci
           # Wait for the health endpoint.
@@ -55,8 +60,37 @@ jobs:
           done
           # Health is open; reading endpoints now requires authentication.
           curl -fsS http://localhost:3000/api/health
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/api/endpoints)" = "401"
           curl -fsS -u admin:ci-secret http://localhost:3000/api/endpoints
+          # Auth guard against the real container: expect <code> for
+          # "<method> <path> [curl auth args...]".
+          U=00000000-0000-4000-8000-000000000000
+          fail=0
+          expect() {
+            code=$1; method=$2; path=$3; shift 3
+            got=$(curl -s -o /dev/null -w '%{http_code}' -X "$method" \
+              -H 'content-type: application/json' --data '{}' "$@" \
+              "http://localhost:3000$path")
+            if [ "$got" != "$code" ]; then echo "FAIL $method $path $*: $got (want $code)"; fail=1; fi
+          }
+          for r in "GET /api/me" "GET /api/endpoints" "GET /api/endpoints/$U" \
+                   "POST /api/endpoints" "PATCH /api/endpoints/$U" "DELETE /api/endpoints/$U" \
+                   "POST /api/endpoints/$U/refresh" "POST /api/refresh" \
+                   "GET /api/audits" "POST /api/audits" "GET /api/audits/$U" \
+                   "PATCH /api/audits/$U" "PATCH /api/audits/$U/entries/$U" \
+                   "POST /api/audits/$U/close" "POST /api/audits/$U/reopen" \
+                   "GET /api/audits/$U/export.csv"; do
+            set -- $r
+            expect 401 "$1" "$2"
+            expect 401 "$1" "$2" -u admin:wrong
+            expect 401 "$1" "$2" -H 'cookie: evv_session=forged'
+          done
+          # Viewer is read-only: admin routes -> 403.
+          for r in "POST /api/endpoints" "POST /api/refresh" "GET /api/audits" "POST /api/audits"; do
+            set -- $r
+            expect 403 "$1" "$2" -u viewer:ci-viewer
+          done
+          test "$fail" = 0
+          echo "auth guard OK"
           docker rm -f evv
 
   publish:

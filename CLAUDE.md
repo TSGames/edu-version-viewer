@@ -163,3 +163,12 @@ Other: `Dockerfile`, `docker-compose*.yml`, `.github/workflows/ci.yml`
     if unset → restart logs everyone out), `SESSION_TTL_SECONDS` (default 3600).
     An account with an empty password is disabled.
 - Test: `npm test` (`node --test`).
+- **Auth guard test** (`test/api-auth.test.js`, own CI step before the full
+  suite): `buildApp()` records every route (`app.registeredRoutes()`); every
+  `/api` route must be listed in the test's `ACCESS` table as `public`,
+  `viewer` or `admin` — an unlisted (or stale) route fails the build. For all
+  non-public routes it checks missing/wrong/malformed credentials and forged or
+  logged-out session cookies → 401 (never issuing a session), viewer on admin
+  routes → 403 (Basic and session), and that valid roles pass. **When adding
+  an `/api` route, add it to `ACCESS`.** The Docker smoke test in CI repeats the
+  401/403 checks against the built container.

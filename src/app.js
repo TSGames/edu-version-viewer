@@ -110,6 +110,16 @@ export async function buildApp(opts = {}) {
     logger: opts.logger ?? false,
   });
 
+  // Record every registered route (method + url) so tests can verify that each
+  // /api route is classified and guarded (test/api-auth.test.js).
+  const registeredRoutes = [];
+  app.addHook('onRoute', (route) => {
+    for (const method of [].concat(route.method)) {
+      registeredRoutes.push({ method, url: route.url });
+    }
+  });
+  app.decorate('registeredRoutes', () => registeredRoutes.slice());
+
   // Keep all error/JSON shapes as { error } for the frontend.
   app.setErrorHandler((err, req, reply) => {
     const status = err.statusCode && err.statusCode >= 400 ? err.statusCode : 500;
