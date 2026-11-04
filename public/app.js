@@ -12,6 +12,7 @@ const els = {
   whoami: document.getElementById('whoami'),
   sortBy: document.getElementById('sort-by'),
   search: document.getElementById('search'),
+  versionFilter: document.getElementById('version-filter'),
   viewToggle: document.getElementById('view-toggle'),
   login: document.getElementById('login'),
   loginForm: document.getElementById('login-form'),
@@ -436,13 +437,107 @@ function sortEndpoints(list) {
   return arr;
 }
 
-// Live search: match the query against label, URL or any connected repo title.
+// Version filter values: '' (all), 'major:10', 'minor:10.0', 'unknown'.
+// Persisted so the choice survives reloads and the 30s auto-refresh.
+let versionFilter = localStorage.getItem('versionFilter') || '';
+
+// "10.0.3" -> "10" / "10.0"; null when the version is unknown.
+function versionMajor(v) {
+  const k = versionKey(v);
+  return k ? String(k[0]) : null;
+}
+function versionMinor(v) {
+  const k = versionKey(v);
+  return k ? `${k[0]}.${k[1] || 0}` : null;
+}
+
+function matchesVersionFilter(e, filter) {
+  if (!filter) return true;
+  if (filter === 'unknown') return versionKey(e.version) == null;
+  const [kind, val] = filter.split(':');
+  if (kind === 'major') return versionMajor(e.version) === val;
+  if (kind === 'minor') return versionMinor(e.version) === val;
+  return true;
+}
+
+// Rebuild the version dropdown from the versions actually present (grouped by
+// major, with each major.minor below it), keeping the current selection.
+function updateVersionFilterOptions(list) {
+  if (!els.versionFilter) return;
+  const majors = new Map(); // major -> Map(minor -> count)
+  const majorCount = new Map();
+  let unknown = 0;
+  for (const e of list) {
+    const maj = versionMajor(e.version);
+    if (maj == null) {
+      unknown++;
+      continue;
+    }
+    const min = versionMinor(e.version);
+    if (!majors.has(maj)) majors.set(maj, new Map());
+    majors.get(maj).set(min, (majors.get(maj).get(min) || 0) + 1);
+    majorCount.set(maj, (majorCount.get(maj) || 0) + 1);
+  }
+  const opts = [['', 'Alle Versionen']];
+  const sortedMajors = [...majors.keys()].sort((a, b) => compareVersion(b, a));
+  for (const maj of sortedMajors) {
+    opts.push([`major:${maj}`, `${maj}.x (${majorCount.get(maj)})`]);
+    const minors = [...majors.get(maj).keys()].sort((a, b) => compareVersion(b, a));
+    if (minors.length > 1) {
+      for (const min of minors) {
+        opts.push([`minor:${min}`, `\u00a0\u00a0${min}.x (${majors.get(maj).get(min)})`]);
+      }
+    }
+  }
+  if (unknown) opts.push(['unknown', `unbekannt (${unknown})`]);
+
+  // Keep a selection that no longer matches anything visible as an option, so
+  // a refresh doesn't silently reset the user's filter.
+  if (versionFilter && !opts.some(([v]) => v === versionFilter)) {
+    const label = versionFilter.replace(/^(major|minor):/, '') + '.x (0)';
+    opts.push([versionFilter, label]);
+  }
+
+  els.versionFilter.innerHTML = opts
+    .map(([v, l]) => `<option value="${escapeHtml(v)}">${escapeHtml(l)}</option>`)
+    .join('');
+  els.versionFilter.value = versionFilter;
+}
+
+// Version comparison queries in the search box: ">=10", "<9.1", "=10.0", "!=9".
+const VERSION_QUERY_RE = /^(>=|<=|!=|>|<|=)\s*(\d+(?:\.\d+)*)$/;
+
+function matchesVersionQuery(e, op, ver) {
+  if (versionKey(e.version) == null) return false; // unknown never matches
+  const c = compareVersion(e.version, ver);
+  switch (op) {
+    case '>=':
+      return c >= 0;
+    case '<=':
+      return c <= 0;
+    case '>':
+      return c > 0;
+    case '<':
+      return c < 0;
+    case '!=':
+      return c !== 0;
+    default:
+      return c === 0;
+  }
+}
+
+// Live search: match the query against label, URL, version or any connected
+// repo title. A query like ">=10.0" compares versions numerically instead.
 function filterEndpoints(list) {
+  const byVersion = list.filter((e) => matchesVersionFilter(e, versionFilter));
   const q = (els.search ? els.search.value : '').trim().toLowerCase();
-  if (!q) return list;
-  return list.filter((e) => {
+  if (!q) return byVersion;
+  const vq = q.replace(/\s+/g, '').match(VERSION_QUERY_RE);
+  if (vq) return byVersion.filter((e) => matchesVersionQuery(e, vq[1], vq[2]));
+  return byVersion.filter((e) => {
     if (String(e.label || '').toLowerCase().includes(q)) return true;
     if (String(e.url || '').toLowerCase().includes(q)) return true;
+    if (String(e.version || '').toLowerCase().includes(q)) return true;
     if (
       Array.isArray(e.repositories) &&
       e.repositories.some((r) => String(r && r.title ? r.title : '').toLowerCase().includes(q))
@@ -554,6 +649,7 @@ async function loadEndpoints() {
     }
     const data = await res.json();
     lastEndpoints = data.endpoints || [];
+    updateVersionFilterOptions(lastEndpoints);
     renderEndpoints();
   } catch {
     els.cards.innerHTML = '<div class="error-text">Konnte Endpunkte nicht laden.</div>';
@@ -573,7 +669,9 @@ function renderEndpoints() {
   const filtered = filterEndpoints(lastEndpoints);
   if (filtered.length === 0) {
     const q = els.search ? els.search.value.trim() : '';
-    els.cards.innerHTML = `<div class="muted">Keine Treffer für „${escapeHtml(q)}“.</div>`;
+    els.cards.innerHTML = q
+      ? `<div class="muted">Keine Treffer für „${escapeHtml(q)}“.</div>`
+      : '<div class="muted">Keine Endpunkte mit dieser Version.</div>';
     return;
   }
   const sorted = sortEndpoints(filtered);
@@ -763,6 +861,11 @@ els.newUrl.addEventListener('keydown', (e) => {
 els.refreshAllBtn.addEventListener('click', refreshAll);
 els.sortBy.addEventListener('change', renderEndpoints);
 els.search.addEventListener('input', renderEndpoints);
+els.versionFilter.addEventListener('change', () => {
+  versionFilter = els.versionFilter.value;
+  localStorage.setItem('versionFilter', versionFilter);
+  renderEndpoints();
+});
 els.loginForm.addEventListener('submit', doLogin);
 els.logoutBtn.addEventListener('click', doLogout);
 

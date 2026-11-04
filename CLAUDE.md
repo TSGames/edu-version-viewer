@@ -77,6 +77,11 @@ Other: `Dockerfile`, `docker-compose*.yml`, `.github/workflows/ci.yml`
 - **Sorting**: cards can be sorted by Label, URL, Status, or Version. Version
   sorts numerically (`10.0` after `9.0`); unknown versions last; status groups
   problems first.
+- **Filtering**: a version dropdown (built from the versions present: `N.x`
+  per major, `N.M.x` per minor when a major has several, plus `unbekannt`;
+  persisted in `localStorage`) narrows the list. The live search matches
+  label, URL, version and connected repo titles; a query like `>=10.0`,
+  `<9.1`, `=10`, `!=9` compares versions numerically (unknown never matches).
 - **RS2 pill**: when `renderingService2 != null` in the response, a green
   `RS2` pill is shown in the card badges.
 - **features/plugins** chips render only the object `id`, not the raw JSON.
