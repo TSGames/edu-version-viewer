@@ -91,6 +91,11 @@ Other: `Dockerfile`, `docker-compose*.yml`, `.github/workflows/ci.yml`
   persisted in `localStorage`) narrows the list. The live search matches
   label, URL, version and connected repo titles; a query like `>=10.0`,
   `<9.1`, `=10`, `!=9` compares versions numerically (unknown never matches).
+  A repo-type select (Dev/Staging/Prod) and an "Extern ausblenden" checkbox
+  (hides `hosting === 'external'`) narrow further; both persisted in
+  `localStorage`.
+  Below the grid a client-side **CSV export** (semicolon, BOM, formula-injection
+  safe) downloads exactly the currently filtered + sorted instances.
 - **RS2 pill**: when `renderingService2 != null` in the response, a green
   `RS2` pill is shown in the card badges.
 - **features/plugins** chips render only the object `id`, not the raw JSON.

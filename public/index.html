@@ -82,6 +82,16 @@
         <option value="">Alle Versionen</option>
       </select>
       <select id="audit-filter" class="hidden" aria-label="Nach Patch-Runde filtern"></select>
+      <select id="filter-repotype" aria-label="Repository-Typ filtern">
+        <option value="">Alle Typen</option>
+        <option value="dev">Dev</option>
+        <option value="staging">Staging</option>
+        <option value="prod">Prod</option>
+      </select>
+      <label class="toolbar-check muted">
+        <input id="hide-external" type="checkbox" />
+        Extern ausblenden
+      </label>
       <input
         id="search"
         type="search"
@@ -99,6 +109,10 @@
     </div>
 
     <main id="cards"></main>
+      <div class="list-footer">
+        <span id="result-count" class="muted"></span>
+        <button id="csv-btn" type="button" class="secondary">CSV-Export (aktuelle Ansicht)</button>
+      </div>
     </div>
 
     <!-- Patch-audit rounds (admin only), rendered by audits.js -->

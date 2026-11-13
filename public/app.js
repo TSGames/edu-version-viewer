@@ -12,6 +12,10 @@ const els = {
   whoami: document.getElementById('whoami'),
   sortBy: document.getElementById('sort-by'),
   search: document.getElementById('search'),
+  filterRepoType: document.getElementById('filter-repotype'),
+  hideExternal: document.getElementById('hide-external'),
+  csvBtn: document.getElementById('csv-btn'),
+  resultCount: document.getElementById('result-count'),
   versionFilter: document.getElementById('version-filter'),
   viewToggle: document.getElementById('view-toggle'),
   login: document.getElementById('login'),
@@ -530,8 +534,17 @@ function matchesVersionQuery(e, op, ver) {
 // Live search: match the query against label, URL, version or any connected
 // repo title. A query like ">=10.0" compares versions numerically instead.
 function filterEndpoints(list) {
-  // Version dropdown + patch-round filter (audits.js) narrow first.
-  const byVersion = list.filter((e) => matchesVersionFilter(e, versionFilter) && matchesAuditFilter(e));
+  // Version dropdown, repo-type select, "Extern ausblenden" and the patch-round
+  // filter (audits.js) narrow first.
+  const type = els.filterRepoType ? els.filterRepoType.value : '';
+  const hideExt = els.hideExternal ? els.hideExternal.checked : false;
+  const byVersion = list.filter(
+    (e) =>
+      matchesVersionFilter(e, versionFilter) &&
+      matchesAuditFilter(e) &&
+      (!type || e.repoType === type) &&
+      !(hideExt && e.hosting === 'external'),
+  );
   const q = (els.search ? els.search.value : '').trim().toLowerCase();
   if (!q) return byVersion;
   const vq = q.replace(/\s+/g, '').match(VERSION_QUERY_RE);
@@ -658,9 +671,18 @@ async function loadEndpoints() {
   }
 }
 
+// What renderEndpoints() last displayed (filtered + sorted); used by the CSV export.
+let visibleEndpoints = [];
+
 // Render lastEndpoints applying the current search filter and sort order.
 function renderEndpoints() {
   const openState = captureOpenState();
+  // The CSV export uses exactly what is shown (filters + sort order).
+  visibleEndpoints = sortEndpoints(filterEndpoints(lastEndpoints));
+  if (els.resultCount) {
+    els.resultCount.textContent = `${visibleEndpoints.length} von ${lastEndpoints.length} Instanzen`;
+  }
+  if (els.csvBtn) els.csvBtn.disabled = visibleEndpoints.length === 0;
   els.cards.classList.toggle('list-mode', view === 'list');
   els.cards.innerHTML = '';
   if (lastEndpoints.length === 0) {
@@ -686,6 +708,75 @@ function renderEndpoints() {
   }
   restoreOpenState(openState);
 }
+
+// ---------- CSV export (client-side, current filtered/sorted view) ----------
+
+function csvCell(v) {
+  let s = v == null ? '' : String(v);
+  // Neutralize spreadsheet formula injection.
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  return /[";\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function endpointsCsv(list) {
+  const rows = [
+    [
+      'Label',
+      'Öffentlicher Name',
+      'URL',
+      'Status',
+      'Version',
+      'Repository-Typ',
+      'Hosting',
+      'Netzwerk-Tags',
+      'IP',
+      'Letzter Abgleich',
+      'Verbundene Repositories',
+      'App',
+      'Browserplugin',
+      'Notizen',
+    ],
+  ];
+  for (const e of list) {
+    rows.push([
+      e.label,
+      e.publicName,
+      e.url,
+      e.lastStatus,
+      e.version,
+      REPO_TYPE_LABELS[e.repoType] || '',
+      HOSTING_LABELS[e.hosting] || '',
+      Array.isArray(e.networkTags) ? e.networkTags.join(', ') : '',
+      e.resolvedIp,
+      e.lastSync ? new Date(e.lastSync).toISOString() : '',
+      Array.isArray(e.repositories)
+        ? e.repositories.map((r) => [r.title, r.repositoryType].filter(Boolean).join(' / ')).join(', ')
+        : '',
+      e.showInApp ? 'ja' : 'nein',
+      e.showInBrowserPlugin ? 'ja' : 'nein',
+      e.notes,
+    ]);
+  }
+  // Semicolon-separated (German Excel default).
+  return rows.map((r) => r.map(csvCell).join(';')).join('\r\n') + '\r\n';
+}
+
+function exportCsv() {
+  if (visibleEndpoints.length === 0) return;
+  // BOM so Excel detects UTF-8 (umlauts).
+  const blob = new Blob(['\uFEFF' + endpointsCsv(visibleEndpoints)], {
+    type: 'text/csv;charset=utf-8',
+  });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `instanzen-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+els.csvBtn.addEventListener('click', exportCsv);
 
 // ---------- admin actions ----------
 
@@ -866,6 +957,32 @@ els.newUrl.addEventListener('keydown', (e) => {
 els.refreshAllBtn.addEventListener('click', refreshAll);
 els.sortBy.addEventListener('change', renderEndpoints);
 els.search.addEventListener('input', renderEndpoints);
+
+// Filters persist across reloads (per browser) like the view toggle.
+function loadFilters() {
+  try {
+    const type = localStorage.getItem('filterRepoType') || '';
+    if (['', 'dev', 'staging', 'prod'].includes(type)) els.filterRepoType.value = type;
+    els.hideExternal.checked = localStorage.getItem('hideExternal') === '1';
+  } catch {
+    /* storage unavailable: defaults */
+  }
+}
+function saveFilters() {
+  try {
+    localStorage.setItem('filterRepoType', els.filterRepoType.value);
+    localStorage.setItem('hideExternal', els.hideExternal.checked ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
+loadFilters();
+for (const el of [els.filterRepoType, els.hideExternal]) {
+  el.addEventListener('change', () => {
+    saveFilters();
+    renderEndpoints();
+  });
+}
 els.versionFilter.addEventListener('change', () => {
   versionFilter = els.versionFilter.value;
   localStorage.setItem('versionFilter', versionFilter);
