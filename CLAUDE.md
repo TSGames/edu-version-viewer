@@ -145,8 +145,7 @@ Other: `Dockerfile`, `docker-compose*.yml`, `.github/workflows/ci.yml`
   `includeTags`/`excludeTags` (network tags), `components` (`rs2`,
   `renderservice`, `feature:<id>`, `plugin:<id>`; any must match),
   `minVersion`/`fixedVersion` (full-version range, only applied when the
-  reported version is at least as precise), `includeIds`/`excludeIds` (manual,
-  exclude wins). Filters only exclude on **known** data: unset hosting,
+  reported version is at least as precise). Filters only exclude on **known** data: unset hosting,
   unresolved host, never-fetched `_about` (`fetched: false` in the list view)
   or an imprecise version keep the instance in scope. An `open` entry that
   falls out of scope becomes `not-affected` (by `system`, with the reason) and

@@ -18,7 +18,7 @@
 //   scope filters (all optional, empty = no restriction, see inScope()):
 //     excludeHosting: ['external', 'unset'], includeTags: [], excludeTags: [],
 //     components: ['rs2', 'renderservice', 'feature:<id>', 'plugin:<id>'],
-//     minVersion: '', fixedVersion: '', includeIds: [], excludeIds: [],
+//     minVersion: '', fixedVersion: '',
 //   status: 'open' | 'closed', createdAt, createdBy, updatedAt,
 //   closedAt, closedBy, closeNote,
 //   history: [{ at, by, action, note }],
@@ -36,7 +36,6 @@ const REPO_TYPES = ['dev', 'staging', 'prod'];
 // Hosting values a round can exclude; 'unset' = endpoint without a hosting.
 const HOSTING_EXCLUDES = ['cluster', 'docker', 'external', 'unset'];
 const COMPONENT_RE = /^(rs2|renderservice|(feature|plugin):[^\s]{1,200})$/;
-const ENDPOINT_ID_RE = /^[\w-]{1,100}$/;
 const LIST_MAX = 200;
 const BASE_VERSION_RE = /^\d+\.\d+$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -121,8 +120,6 @@ const SCOPE_LISTS = {
   includeTags: (v) => v.length > 0 && v.length <= 100,
   excludeTags: (v) => v.length > 0 && v.length <= 100,
   components: (v) => COMPONENT_RE.test(v),
-  includeIds: (v) => ENDPOINT_ID_RE.test(v),
-  excludeIds: (v) => ENDPOINT_ID_RE.test(v),
 };
 
 // Optional full version bound ('' = none), e.g. "10.0.4".
@@ -209,8 +206,6 @@ function hasComponent(ep, c) {
 export function inScope(audit, ep) {
   const out = (reason, sure = true) => ({ in: false, reason, sure });
   const ids = (k) => audit[k] || [];
-  if (ids('excludeIds').includes(ep.id)) return out('manuell ausgeschlossen');
-  if (ids('includeIds').includes(ep.id)) return { in: true, reason: '' };
 
   if (audit.repoTypes && audit.repoTypes.length && !audit.repoTypes.includes(ep.repoType)) {
     return out('Typ nicht im Umfang');
@@ -577,8 +572,6 @@ export function scopeSummary(a) {
   if (list('includeTags').length) parts.push('nur Netz: ' + list('includeTags').join(', '));
   if (list('excludeTags').length) parts.push('ohne Netz: ' + list('excludeTags').join(', '));
   if (list('components').length) parts.push('Komponente: ' + list('components').map(componentDe).join(' oder '));
-  if (list('includeIds').length) parts.push(`${list('includeIds').length} manuell eingeschlossen`);
-  if (list('excludeIds').length) parts.push(`${list('excludeIds').length} manuell ausgeschlossen`);
   return parts.join(' · ');
 }
 

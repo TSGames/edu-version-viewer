@@ -83,8 +83,6 @@ function scopeLabel(a) {
   if (list('includeTags').length) parts.push('nur Netz ' + list('includeTags').join(', '));
   if (list('excludeTags').length) parts.push('ohne Netz ' + list('excludeTags').join(', '));
   if (list('components').length) parts.push('mit ' + list('components').map(componentLabel).join(' oder '));
-  if (list('includeIds').length) parts.push(`${list('includeIds').length} manuell eingeschlossen`);
-  if (list('excludeIds').length) parts.push(`${list('excludeIds').length} manuell ausgeschlossen`);
   return parts.length ? ' · ' + parts.join(' · ') : '';
 }
 
@@ -120,8 +118,6 @@ function cmpKeys(ka, kb) {
 // Unknown data (never fetched, unresolved host, imprecise version) stays in.
 function clientInScope(a, e) {
   const list = (k) => a[k] || [];
-  if (list('excludeIds').includes(e.id)) return false;
-  if (list('includeIds').includes(e.id)) return true;
   if (list('repoTypes').length && !list('repoTypes').includes(e.repoType)) return false;
   if (list('excludeHosting').includes(e.hosting || 'unset')) return false;
   if (e.resolvedIp) {
@@ -138,10 +134,6 @@ function clientInScope(a, e) {
   const kf = a.fixedVersion ? versionKey(a.fixedVersion) : null;
   if (kf && kv.length >= kf.length && cmpKeys(kv, kf) >= 0) return false;
   return true;
-}
-
-function endpointName(e) {
-  return e.label || hostOf(e.url);
 }
 
 // "Ziel: 15.11.2026 (in 11 Tagen)" / overdue / no date + how long it's open.
@@ -460,7 +452,7 @@ function hasAdvancedScope(a) {
     !!(
       a.minVersion ||
       a.fixedVersion ||
-      ['excludeHosting', 'includeTags', 'excludeTags', 'components', 'includeIds', 'excludeIds'].some(
+      ['excludeHosting', 'includeTags', 'excludeTags', 'components'].some(
         (k) => a[k] && a[k].length
       )
     )
@@ -479,12 +471,8 @@ function renderAuditForm(root, audit) {
   const tagModes = new Map();
   for (const t of (audit && audit.includeTags) || []) tagModes.set(t, 'in');
   for (const t of (audit && audit.excludeTags) || []) tagModes.set(t, 'ex');
-  const includeIds = new Set((audit && audit.includeIds) || []);
-  const excludeIds = new Set((audit && audit.excludeIds) || []);
   const tags = presentTags([...tagModes.keys()]);
   const comps = presentComponents(components);
-  const byId = new Map(lastEndpoints.map((e) => [e.id, e]));
-  const sortedEps = [...lastEndpoints].sort((x, y) => endpointName(x).localeCompare(endpointName(y)));
 
   const check = (name, value, label, on, n) =>
     `<label><input type="checkbox" name="${name}" value="${escapeHtml(value)}" ${on ? 'checked' : ''}> ${escapeHtml(
@@ -515,7 +503,7 @@ function renderAuditForm(root, audit) {
           <button type="button" class="secondary vers-add-btn">+ hinzufügen</button>
         </div>
         <details class="scope-more" ${hasAdvancedScope(audit) ? 'open' : ''}>
-          <summary>Weitere Filter <span class="muted">(Hosting, Netz, Komponenten, Versionsbereich, einzelne Instanzen)</span></summary>
+          <summary>Weitere Filter <span class="muted">(Hosting, Netz, Komponenten, Versionsbereich)</span></summary>
           <p class="sm muted">Filter schließen nur anhand bekannter Daten aus: Instanzen ohne Abruf, ohne aufgelöste IP oder mit zu ungenauer Version bleiben in der Runde.</p>
           <div class="grid2">
             <div class="fld">Hosting ausschließen
@@ -551,14 +539,6 @@ function renderAuditForm(root, audit) {
             <label class="fld">Betroffen ab Version <span class="muted">(optional, z. B. 10.0.2)</span><input name="minVersion" maxlength="50"></label>
             <label class="fld">Behoben ab Version <span class="muted">(optional, z. B. 10.0.4)</span><input name="fixedVersion" maxlength="50"></label>
             <div class="span2 sm muted">Der Versionsbereich greift nur, wenn _about die Version mindestens so genau meldet (z. B. „10.0.4“). Bei „10.0“ bleibt die Instanz in der Runde.</div>
-            <div class="fld">Zusätzlich einschließen <span class="muted">(unabhängig von Version/Filtern)</span>
-              <select class="ids-add" data-kind="include"></select>
-              <div class="id-chips" data-kind="include"></div>
-            </div>
-            <div class="fld">Ausschließen <span class="muted">(hat Vorrang)</span>
-              <select class="ids-add" data-kind="exclude"></select>
-              <div class="id-chips" data-kind="exclude"></div>
-            </div>
           </div>
         </details>
         <div class="hint"></div>
@@ -581,7 +561,6 @@ function renderAuditForm(root, audit) {
   const vers = form.querySelector('.vers');
   const hint = form.querySelector('.hint');
   const msg = form.querySelector('.form-msg');
-  const idSets = { include: includeIds, exclude: excludeIds };
 
   const checked = (name) => [...form.querySelectorAll(`input[name=${name}]:checked`)].map((i) => i.value);
 
@@ -602,8 +581,6 @@ function renderAuditForm(root, audit) {
       excludeTags,
       minVersion: form.minVersion.value.trim(),
       fixedVersion: form.fixedVersion.value.trim(),
-      includeIds: [...includeIds],
-      excludeIds: [...excludeIds],
     };
   }
 
@@ -622,28 +599,6 @@ function renderAuditForm(root, audit) {
     updateHint();
   }
 
-  function renderIdPickers() {
-    for (const kind of ['include', 'exclude']) {
-      const set = idSets[kind];
-      const sel = form.querySelector(`.ids-add[data-kind=${kind}]`);
-      sel.innerHTML =
-        `<option value="">${kind === 'include' ? 'Instanz einschließen…' : 'Instanz ausschließen…'}</option>` +
-        sortedEps
-          .filter((e) => !set.has(e.id))
-          .map((e) => `<option value="${escapeHtml(e.id)}">${escapeHtml(endpointName(e))}</option>`)
-          .join('');
-      form.querySelector(`.id-chips[data-kind=${kind}]`).innerHTML = [...set]
-        .map((id) => {
-          const e = byId.get(id);
-          const name = e ? endpointName(e) : id + ' (gelöscht)';
-          return `<span class="chip id-chip">${escapeHtml(name)}<button type="button" class="chip-x" data-kind="${kind}" data-id="${escapeHtml(
-            id
-          )}" aria-label="${escapeHtml(name)} entfernen">×</button></span>`;
-        })
-        .join('');
-    }
-  }
-
   function updateHint() {
     if (!selected.size) {
       hint.innerHTML = 'Mindestens eine betroffene Basisversion auswählen.';
@@ -651,20 +606,9 @@ function renderAuditForm(root, audit) {
     }
     const scope = currentScope();
     const basic = { affected: scope.affected, repoTypes: scope.repoTypes };
-    let n = 0;
-    let dropped = 0;
-    let added = 0;
-    for (const e of lastEndpoints) {
-      const full = clientInScope(scope, e);
-      const base = clientInScope(basic, e);
-      if (full) n++;
-      if (base && !full) dropped++;
-      if (full && !base) added++;
-    }
-    const extras = [];
-    if (dropped) extras.push(`${dropped} durch weitere Filter ausgeschlossen`);
-    if (added) extras.push(`${added} manuell eingeschlossen`);
-    const diffText = extras.length ? ` (${extras.join(', ')})` : '';
+    const n = lastEndpoints.filter((e) => clientInScope(scope, e)).length;
+    const dropped = lastEndpoints.filter((e) => clientInScope(basic, e)).length - n;
+    const diffText = dropped > 0 ? ` (${dropped} durch weitere Filter ausgeschlossen)` : '';
     hint.innerHTML = isEdit
       ? `→ aktuell <b>${n} Instanzen</b> im Umfang${escapeHtml(diffText)}. Neu hinzukommende werden als ${pill(
           'open'
@@ -682,26 +626,9 @@ function renderAuditForm(root, audit) {
     else selected.add(v);
     renderTiles();
   });
-  form.addEventListener('change', (ev) => {
-    const t = ev.target;
-    if (t.classList.contains('ids-add')) {
-      if (!t.value) return;
-      const kind = t.dataset.kind;
-      idSets[kind].add(t.value);
-      idSets[kind === 'include' ? 'exclude' : 'include'].delete(t.value);
-      renderIdPickers();
-    }
-    updateHint();
-  });
+  form.addEventListener('change', updateHint);
   form.addEventListener('input', (ev) => {
     if (ev.target.name === 'minVersion' || ev.target.name === 'fixedVersion') updateHint();
-  });
-  form.addEventListener('click', (ev) => {
-    const x = ev.target.closest('.chip-x');
-    if (!x) return;
-    idSets[x.dataset.kind].delete(x.dataset.id);
-    renderIdPickers();
-    updateHint();
   });
   const addInput = form.querySelector('.vers-add-input');
   const addVersion = () => {
@@ -747,7 +674,6 @@ function renderAuditForm(root, audit) {
     }
   });
 
-  renderIdPickers();
   renderTiles();
   form.title.focus();
 }
@@ -871,13 +797,7 @@ function renderAuditDetail(root, a) {
                   .map(
                     ([id, e]) => `
             <tr data-id="${escapeHtml(id)}" class="${e.removed ? 'removed' : e.status === 'not-affected' ? 'na' : ''}">
-              <td><b>${escapeHtml(e.label || hostOf(e.url))}</b>${e.removed ? ' <span class="sm">(Instanz gelöscht)</span>' : ''}${
-                (a.excludeIds || []).includes(id)
-                  ? ' <span class="sm">(manuell ausgeschlossen)</span>'
-                  : (a.includeIds || []).includes(id)
-                    ? ' <span class="sm">(manuell eingeschlossen)</span>'
-                    : ''
-              }
+              <td><b>${escapeHtml(e.label || hostOf(e.url))}</b>${e.removed ? ' <span class="sm">(Instanz gelöscht)</span>' : ''}
                 <div class="sm">${escapeHtml(hostOf(e.url))}</div></td>
               <td><span class="badge version">${escapeHtml(e.version || 'unbekannt')}</span></td>
               <td>${

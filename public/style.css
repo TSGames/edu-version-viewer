@@ -1336,29 +1336,6 @@ button.ver small {
   width: auto;
 }
 
-.id-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-  font-weight: 400;
-}
-
-.id-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-}
-
-.chip-x {
-  border: none;
-  background: none;
-  color: var(--muted);
-  padding: 0 0.1rem;
-  font-size: 0.95rem;
-  line-height: 1;
-  cursor: pointer;
-}
-
 /* ---------- Patch-Runden: detail table view filters ---------- */
 
 .audit-filters {

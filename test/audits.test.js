@@ -273,7 +273,6 @@ test('scope filters: validation', async () => {
     { excludeHosting: 'external' },
     { components: ['feature:'] },
     { components: ['widget'] },
-    { includeIds: ['../x'] },
     { minVersion: '10.x' },
     { minVersion: '10.0.5', fixedVersion: '10.0.5' },
   ];
@@ -346,12 +345,6 @@ test('syncAudit: version range only applies with enough precision', () => {
   assert.deepEqual(scoped({ fixedVersion: '10.0.4' }, eps), ['base', 'old']);
 });
 
-test('syncAudit: manual include/exclude; exclude wins', () => {
-  const eps = [ep('a'), ep('b', { version: '8.0' }), ep('c')];
-  assert.deepEqual(scoped({ includeIds: ['b'], excludeIds: ['c'] }, eps), ['a', 'b']);
-  assert.deepEqual(scoped({ includeIds: ['a'], excludeIds: ['a'] }, eps), ['c']);
-});
-
 test('syncAudit: scope change marks open entries not-affected and back', () => {
   const a = round({});
   syncAudit(a, [ep('x', { hosting: 'external', version: null })]);
@@ -368,18 +361,17 @@ test('syncAudit: scope change marks open entries not-affected and back', () => {
   // Patched entries are never touched by scope changes.
   a.entries.x.status = 'patched';
   a.entries.x.updatedBy = 'admin';
-  a.excludeIds = ['x'];
+  a.excludeHosting = ['external'];
   syncAudit(a, [ep('x', { hosting: 'external', version: null })]);
   assert.equal(a.entries.x.status, 'patched');
 });
 
 test('scopeSummary describes all filters', () => {
   const s = scopeSummary(
-    round({ affected: ['10.0', 'unknown'], excludeHosting: ['external'], components: ['rs2'], fixedVersion: '10.0.4', excludeIds: ['a'] })
+    round({ affected: ['10.0', 'unknown'], excludeHosting: ['external'], components: ['rs2'], fixedVersion: '10.0.4' })
   );
   assert.match(s, /Basisversionen: 10\.0, unbekannt/);
   assert.match(s, /ohne Hosting: Extern/);
   assert.match(s, /Komponente: RS2/);
   assert.match(s, /behoben ab 10\.0\.4/);
-  assert.match(s, /1 manuell ausgeschlossen/);
 });
