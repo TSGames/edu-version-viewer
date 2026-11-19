@@ -120,10 +120,18 @@ einfügen und die Werte (vor allem `ADMIN_PASSWORD`) direkt im Editor anpassen.
 | `VIEWER_PASSWORD`    | _(none)_         | Read-only password — leave empty to disable the viewer account |
 | `CRON_SCHEDULE`      | `*/15 * * * *`   | When to poll endpoints (5-field cron)     |
 | `REQUEST_TIMEOUT_MS` | `10000`          | Per-request fetch timeout                 |
+| `ALLOWED_SOURCE_RANGES` | _(none)_      | Comma-separated IPv4 ranges (`134.76.0.0/16`, `10`) allowed to reach the app; only `/api/public/*` and `/api/health` stay open. Empty = no restriction |
+| `TRUST_PROXY_HOPS`   | _(unset)_        | Reverse proxies in front of the app whose `X-Forwarded-For` is trusted (`0` = none, `1` = one ingress/proxy). Required with `ALLOWED_SOURCE_RANGES`; unset = legacy "trust every hop" (warning at startup) |
 
 If `ADMIN_PASSWORD` is unset, admin (write) actions are disabled. If **both**
 `ADMIN_PASSWORD` and `VIEWER_PASSWORD` are unset, nobody can log in — set at
 least one.
+
+With `ALLOWED_SOURCE_RANGES` set, every other request from outside the ranges
+gets `403` (UI, login and API alike). The client IP is taken from the
+connection (`TRUST_PROXY_HOPS=0`) or from the entry the outermost trusted proxy
+wrote into `X-Forwarded-For`, so client-supplied header values are ignored. The
+app refuses to start with an allowlist but without `TRUST_PROXY_HOPS`.
 
 ### Cron format
 

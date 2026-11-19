@@ -36,6 +36,18 @@ async function start() {
   }
 
   const app = await buildApp();
+  const access = app.accessConfig();
+  if (access.ranges.length) {
+    console.log(
+      '[startup] source-IP allowlist active: %s (public: /api/public/*, /api/health; trusted proxy hops: %s)',
+      access.ranges.join(', '),
+      access.trustProxy === false ? 0 : access.trustProxy
+    );
+  } else if (access.trustProxy === true) {
+    console.warn(
+      '[startup] WARNING: TRUST_PROXY_HOPS is not set — X-Forwarded-* headers from any hop are trusted. Set it to 0 (no proxy) or the number of reverse proxies.'
+    );
+  }
 
   // Schedule periodic fetches.
   try {

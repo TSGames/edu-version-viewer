@@ -14,13 +14,30 @@ spec:
     - Egress
   ingress:
     # Reach the app's HTTP port. With fromAnywhere, no `from` is set (= all
-    # sources); otherwise only the configured peers may connect.
+    # sources); otherwise only the ingress controller (+ extra peers) may connect.
     - ports:
         - port: http
           protocol: TCP
       {{- if not .Values.networkPolicy.ingress.fromAnywhere }}
+      {{- $ctl := .Values.networkPolicy.ingress.controller | default dict }}
+      {{- $peers := .Values.networkPolicy.ingress.from | default list }}
+      {{- if and (not $ctl.namespace) (not $peers) }}
+      {{- fail "networkPolicy.ingress: fromAnywhere is false but no controller.namespace and no from peers are set (an empty `from` would allow every source)" }}
+      {{- end }}
       from:
-        {{- toYaml .Values.networkPolicy.ingress.from | nindent 8 }}
+        {{- if $ctl.namespace }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $ctl.namespace | quote }}
+          {{- with $ctl.podLabels }}
+          podSelector:
+            matchLabels:
+              {{- toYaml . | nindent 14 }}
+          {{- end }}
+        {{- end }}
+        {{- with $peers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}
   egress:
     # DNS resolution (kube-dns / CoreDNS). Kept separate so the private-range

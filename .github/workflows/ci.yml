@@ -147,6 +147,25 @@ jobs:
             --set ingress.enabled=true \
             --set persistence.enabled=true \
             --set autoscaling.enabled=true > /dev/null
+      - name: Helm template (source-IP allowlist + NetworkPolicy variants)
+        run: |
+          set -euo pipefail
+          out=$(helm template t charts/edu-version-viewer --set auth.adminPassword=ci \
+            --set 'config.allowedSourceRanges={134.76.0.0/16,10.0.0.0/8}')
+          grep -q 'ALLOWED_SOURCE_RANGES: "134.76.0.0/16,10.0.0.0/8"' <<<"$out"
+          grep -q 'TRUST_PROXY_HOPS: "1"' <<<"$out"
+          grep -q 'kubernetes.io/metadata.name: "traefik"' <<<"$out"
+          grep -q 'app.kubernetes.io/name: traefik' <<<"$out"
+          # k3s: Traefik lives in kube-system
+          helm template t charts/edu-version-viewer --set auth.adminPassword=ci \
+            --set networkPolicy.ingress.controller.namespace=kube-system | grep -q '"kube-system"'
+          helm template t charts/edu-version-viewer --set auth.adminPassword=ci \
+            --set networkPolicy.ingress.fromAnywhere=true > /dev/null
+          # No controller and no peers would render an allow-all `from` -> must fail.
+          if helm template t charts/edu-version-viewer --set auth.adminPassword=ci \
+            --set networkPolicy.ingress.controller.namespace= > /dev/null 2>&1; then
+            echo "expected failure without ingress peers"; exit 1
+          fi
 
   # Package and push the chart as an OCI artifact to GHCR. Versioning follows the
   # git ref: a semver tag (v1.2.3 or 1.2.3) publishes the matching version (and

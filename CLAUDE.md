@@ -60,6 +60,11 @@ Backend (`src/`):
   in-process lock (cron sync vs. admin edits).
 - `version.js` — numeric version compare (`versionKey`, `isAtLeast`) and
   `minorOf()` (base version `N.M`).
+- `access.js` — central source-IP allowlist (`ALLOWED_SOURCE_RANGES`) as the
+  first `onRequest` hook, and proxy trust (`TRUST_PROXY_HOPS` → Fastify
+  `trustProxy`). Exempt are only the route patterns in `PUBLIC_ROUTES`
+  (`/api/health`, `/api/public/instances`), matched on the routed pattern, not
+  the raw URL. An allowlist without `TRUST_PROXY_HOPS` refuses to start.
 - `auth.js` — HTTP Basic parsing + constant-time role resolver
   (`makeAuthenticator`/`roleFor`). Sessions are handled by `@fastify/session`.
 
@@ -169,6 +174,11 @@ Other: `Dockerfile`, `docker-compose*.yml`, `.github/workflows/ci.yml`
 - The periodic refresh re-renders all cards but preserves which `<details>`
   the user had open (keyed by endpoint id + summary label; cards carry a
   `data-id`).
+- **When adding a public (unauthenticated, not IP-restricted) route**, add it
+  to `PUBLIC_ROUTES` in `src/access.js` as well as `public` in the auth test.
+- Helm: `config.allowedSourceRanges` / `config.trustProxyHops` (default `1`);
+  the NetworkPolicy by default only admits the ingress controller
+  (`networkPolicy.ingress.controller`, Traefik in namespace `traefik`).
 - UI text is German.
 
 ## Commands
@@ -178,6 +188,9 @@ Other: `Dockerfile`, `docker-compose*.yml`, `.github/workflows/ci.yml`
     `VIEWER_USER`/`VIEWER_PASSWORD`, `DATA_DIR` (default `/data`),
     `CRON_SCHEDULE` (default `*/15 * * * *`), `REQUEST_TIMEOUT_MS`,
     `FAIL_THRESHOLD`, `IP_RANGES_FILE` (default `<DATA_DIR>/ip-ranges.conf`),
+    `ALLOWED_SOURCE_RANGES` (comma-separated IPv4 CIDR/prefix allowlist; empty =
+    off), `TRUST_PROXY_HOPS` (`0` = no proxy, `N` = trusted proxies; unset =
+    legacy trust-all, required with an allowlist),
     `SESSION_SECRET` (signs the session-id cookie, ≥32 chars; random per process
     if unset → restart logs everyone out), `SESSION_TTL_SECONDS` (default 3600).
     An account with an empty password is disabled.

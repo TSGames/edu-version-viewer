@@ -36,6 +36,7 @@ import {
   auditCsv,
   syncAllAudits,
 } from './audits.js';
+import { resolveAccessConfig, makeAllowlistHook } from './access.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -105,11 +106,21 @@ export async function buildApp(opts = {}) {
   const roleFor = makeAuthenticator({ adminUser, adminPassword, viewerUser, viewerPassword });
   const userForRole = (role) => (role === 'admin' ? adminUser : viewerUser);
 
+  // Source-IP allowlist + proxy trust (see src/access.js). Throws on invalid
+  // or unsafe config so a misconfigured deployment fails at startup.
+  const access = resolveAccessConfig(opts);
+
   const app = Fastify({
     bodyLimit: MAX_BODY, // oversized bodies -> 413 automatically
-    trustProxy: true, // honor x-forwarded-proto for `secure` cookies behind a proxy
+    // Decides req.ip and x-forwarded-proto (`secure` cookies behind a proxy).
+    trustProxy: access.trustProxy,
     logger: opts.logger ?? false,
   });
+
+  // First hook of all: everything but the public routes requires an allowed
+  // source IP (no-op when ALLOWED_SOURCE_RANGES is empty).
+  if (access.ranges.length) app.addHook('onRequest', makeAllowlistHook(access.ranges));
+  app.decorate('accessConfig', () => ({ ranges: access.ranges.map((r) => r.spec), trustProxy: access.trustProxy }));
 
   // Record every registered route (method + url) so tests can verify that each
   // /api route is classified and guarded (test/api-auth.test.js).

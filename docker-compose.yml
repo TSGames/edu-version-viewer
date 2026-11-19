@@ -13,6 +13,11 @@ services:
       VIEWER_PASSWORD: "${VIEWER_PASSWORD:-}"
       CRON_SCHEDULE: "${CRON_SCHEDULE:-*/15 * * * *}"
       REQUEST_TIMEOUT_MS: "${REQUEST_TIMEOUT_MS:-10000}"
+      # Optional source-IP allowlist (everything but /api/public/* and /api/health).
+      # Then TRUST_PROXY_HOPS is required: 0 = exposed directly, 1 = behind one
+      # reverse proxy. Empty keeps the legacy behavior (trust every proxy hop).
+      ALLOWED_SOURCE_RANGES: "${ALLOWED_SOURCE_RANGES:-}"
+      TRUST_PROXY_HOPS: "${TRUST_PROXY_HOPS:-}"
     volumes:
       # Persisted config.json lives here.
       - ./data:/data

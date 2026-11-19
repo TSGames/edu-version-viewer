@@ -59,6 +59,8 @@ normally do not set it.
 | `auth.existingSecret` | `""` | Use a pre-created Secret instead |
 | `auth.sessionSecret` | `""` | Signs the session cookie; empty = random per pod (logins drop on restart) |
 | `config.sessionTtlSeconds` | `3600` | Session lifetime (1 h) |
+| `config.allowedSourceRanges` | `[]` | Source-IP allowlist enforced by the app (all but `/api/public/*`, `/api/health`); empty = off |
+| `config.trustProxyHops` | `1` | Trusted reverse proxies for the client IP (`X-Forwarded-For`); 1 = ingress controller |
 | `ipRanges` | `134.76: GWDG` | IP range → tag mappings (auto network tags); empty = off |
 | `config.cronSchedule` | `0 */2 * * *` | Poll schedule (every 2 h) |
 | `config.requestTimeoutMs` | `10000` | Per-endpoint fetch timeout |
@@ -71,6 +73,7 @@ normally do not set it.
 | `resources.limits` | `100m` / `128Mi` | CPU / memory limits |
 | `resources.requests` | `50m` / `64Mi` | CPU / memory requests |
 | `networkPolicy.enabled` | `true` | Restrict pod networking (see below) |
+| `networkPolicy.ingress.controller.namespace` | `traefik` | Only this ingress controller may reach the pod (k3s: `kube-system`) |
 | `serviceAccount.create` | `true` | Dedicated SA, token automount off |
 | `autoscaling.enabled` | `false` | HPA (needs RWX storage for >1 replica) |
 
@@ -86,9 +89,31 @@ endpoints – but **not** cluster-internal services:
 - **Egress internet**: allowed to `0.0.0.0/0` on ports 443/80, with private
   ranges (`10/8`, `172.16/12`, `192.168/16`), link-local/metadata
   (`169.254/16`) and CGNAT (`100.64/10`) excluded.
-- **Ingress**: the app port from anywhere by default
-  (`networkPolicy.ingress.fromAnywhere=true`); set it to `false` and list peers
-  in `networkPolicy.ingress.from` to restrict.
+- **Ingress**: only the ingress controller may reach the app port – by default
+  Traefik pods (`app.kubernetes.io/name: traefik`) in namespace `traefik`
+  (`networkPolicy.ingress.controller`; on k3s set the namespace to
+  `kube-system`). Extra peers go to `networkPolicy.ingress.from`;
+  `fromAnywhere=true` allows every source. This keeps clients from bypassing the
+  ingress with a forged `X-Forwarded-For`. Kubelet probes come from the node and
+  are not affected by NetworkPolicies on common CNIs (Calico, Cilium).
+
+## Source-IP allowlist
+
+`config.allowedSourceRanges` restricts the whole app – UI, login and all
+`/api/*` routes – to the listed IPv4 ranges. Only `/api/public/*` (public
+instance list) and `/api/health` stay open. Others get `403`. The check runs in
+the app, so it works with any ingress controller:
+
+```yaml
+config:
+  allowedSourceRanges: [134.76.0.0/16, 10.0.0.0/8]
+  trustProxyHops: "1"   # Traefik -> pod
+```
+
+The client IP is the address the outermost trusted proxy saw
+(`config.trustProxyHops`, see `values.yaml`). Traefik must see the real client
+IP itself, e.g. via `externalTrafficPolicy: Local` on its Service or proxy
+protocol from the load balancer.
 
 > Enforcement requires a NetworkPolicy-capable CNI (e.g. Calico or Cilium).
 > `kindnet` (kind's default) accepts the object but does not enforce it.

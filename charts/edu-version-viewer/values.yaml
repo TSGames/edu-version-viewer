@@ -64,6 +64,22 @@ config:
   failThreshold: "2"
   # Session lifetime (seconds). Default matches the app default (1h).
   sessionTtlSeconds: "3600"
+  # Source-IP allowlist enforced by the app itself (independent of the ingress
+  # controller). Everything except /api/public/* and /api/health is then only
+  # reachable from these ranges (CIDR "134.76.0.0/16" or octet prefix "134.76").
+  # Empty = no restriction. IPv4 only.
+  allowedSourceRanges: []
+  #  - 134.76.0.0/16
+  #  - 10.0.0.0/8
+  # Number of reverse proxies in front of the pod whose X-Forwarded-For entry is
+  # trusted to determine the client IP. 1 = the ingress controller (Traefik)
+  # talks to the pod directly. Use 2 if e.g. an external load balancer that
+  # Traefik trusts (forwardedHeaders.trustedIPs) sits in front. 0 = no proxy,
+  # headers are ignored. Required by the app as soon as an allowlist is set.
+  # Traefik itself must see the real client IP (e.g. its Service with
+  # externalTrafficPolicy: Local, or proxy protocol), otherwise the check sees
+  # the load balancer / node IP.
+  trustProxyHops: "1"
 
 # IP range -> tag mappings for automatic network tags. Shipped as a ConfigMap,
 # mounted as ip-ranges.conf and referenced via IP_RANGES_FILE. Format per line:
@@ -100,14 +116,21 @@ autoscaling:
 networkPolicy:
   enabled: true
   ingress:
-    # Allow traffic to the app port from anywhere. Set to false to restrict to
-    # the namespace/pod selectors below.
-    fromAnywhere: true
-    # Used when fromAnywhere is false. Each entry is a NetworkPolicyPeer.
+    # Only the ingress controller may reach the app port, so nobody can bypass
+    # it (and send a forged X-Forwarded-For). Set true to allow any source.
+    fromAnywhere: false
+    # The ingress controller's pods. Default: Traefik in namespace "traefik"
+    # (k3s installs it in "kube-system"). Set namespace to "" to disable this
+    # peer and rely on `from` only.
+    controller:
+      namespace: traefik
+      podLabels:
+        app.kubernetes.io/name: traefik
+    # Additional NetworkPolicyPeers allowed to reach the app port.
     from: []
     #  - namespaceSelector:
     #      matchLabels:
-    #        kubernetes.io/metadata.name: ingress-nginx
+    #        kubernetes.io/metadata.name: monitoring
   egress:
     # kube-dns / CoreDNS resolution (kept separate so the private-range
     # exception below does not block the DNS ClusterIP).
