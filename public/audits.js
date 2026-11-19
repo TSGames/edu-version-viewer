@@ -1,6 +1,7 @@
 // Patch-audit rounds ("Patch-Runden") — admin-only UI. Vanilla JS, loaded after
 // app.js and sharing its globals (escapeHtml, hostOf, lastEndpoints, isAdmin,
-// renderEndpoints, versionKey, compareVersion, REPO_TYPE_SHORT).
+// renderEndpoints, versionKey, compareVersion, REPO_TYPE_SHORT, HOSTING_SHORT,
+// currentUser).
 //
 // Routing via location.hash: '' = Instanzen, #audits = overview,
 // #audits/new, #audits/<id>, #audits/<id>/edit.
@@ -27,6 +28,10 @@ let audits = [];
 // '' | '<id>:open' | '<id>:all' — narrows the instance list to a round.
 let auditFilter = localStorage.getItem('auditFilter') || '';
 let auditListFilter = 'all'; // overview: all | open | closed
+// Detail-table view filters (not stored with the round, kept while the page lives).
+const auditDetailFilter = { q: '', status: '', type: '', hosting: '', touch: '', hideRemoved: false };
+
+const HOSTING_EXCLUDE_LABELS = { cluster: 'K8S', docker: 'Docker', external: 'Extern', unset: 'ohne Angabe' };
 
 // ---------- helpers ----------
 
@@ -53,9 +58,90 @@ function affectedLabel(a) {
     .join(', ');
 }
 
+function componentLabel(c) {
+  if (c === 'rs2') return 'RS2';
+  if (c === 'renderservice') return 'Rendering-Service';
+  if (c.startsWith('feature:')) return 'Feature ' + c.slice(8);
+  if (c.startsWith('plugin:')) return 'Plugin ' + c.slice(7);
+  return c;
+}
+
+// Plain-text scope suffix (everything beyond the base versions); mirrors
+// scopeSummary() in src/audits.js. Callers escape it.
 function scopeLabel(a) {
-  if (!a.repoTypes || !a.repoTypes.length) return '';
-  return ' · nur ' + a.repoTypes.map((t) => REPO_TYPE_SHORT[t] || t).join(', ');
+  const list = (k) => a[k] || [];
+  const parts = [];
+  if (a.minVersion || a.fixedVersion) {
+    parts.push(
+      [a.minVersion && 'ab ' + a.minVersion, a.fixedVersion && 'behoben ab ' + a.fixedVersion].filter(Boolean).join(', ')
+    );
+  }
+  if (list('repoTypes').length) parts.push('nur ' + list('repoTypes').map((t) => REPO_TYPE_SHORT[t] || t).join(', '));
+  if (list('excludeHosting').length) {
+    parts.push('ohne ' + list('excludeHosting').map((h) => HOSTING_EXCLUDE_LABELS[h] || h).join(', '));
+  }
+  if (list('includeTags').length) parts.push('nur Netz ' + list('includeTags').join(', '));
+  if (list('excludeTags').length) parts.push('ohne Netz ' + list('excludeTags').join(', '));
+  if (list('components').length) parts.push('mit ' + list('components').map(componentLabel).join(' oder '));
+  if (list('includeIds').length) parts.push(`${list('includeIds').length} manuell eingeschlossen`);
+  if (list('excludeIds').length) parts.push(`${list('excludeIds').length} manuell ausgeschlossen`);
+  return parts.length ? ' · ' + parts.join(' · ') : '';
+}
+
+// Feature / plugin ids as reported by _about (mirrors idsOf() in src/audits.js).
+function componentIds(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((v) => (v && typeof v === 'object' ? (v.id != null ? v.id : v.name) : v))
+      .filter((v) => v != null)
+      .map(String);
+  }
+  if (value && typeof value === 'object') return Object.keys(value);
+  return [];
+}
+
+function hasComponent(e, c) {
+  if (c === 'rs2') return e.rs2 === true;
+  if (c === 'renderservice') return e.renderservice != null && e.renderservice !== '';
+  if (c.startsWith('feature:')) return componentIds(e.features).includes(c.slice(8));
+  if (c.startsWith('plugin:')) return componentIds(e.plugins).includes(c.slice(7));
+  return false;
+}
+
+function cmpKeys(ka, kb) {
+  for (let i = 0; i < Math.max(ka.length, kb.length); i++) {
+    const d = (ka[i] || 0) - (kb[i] || 0);
+    if (d) return d;
+  }
+  return 0;
+}
+
+// Client copy of inScope() in src/audits.js, used for the form's live count.
+// Unknown data (never fetched, unresolved host, imprecise version) stays in.
+function clientInScope(a, e) {
+  const list = (k) => a[k] || [];
+  if (list('excludeIds').includes(e.id)) return false;
+  if (list('includeIds').includes(e.id)) return true;
+  if (list('repoTypes').length && !list('repoTypes').includes(e.repoType)) return false;
+  if (list('excludeHosting').includes(e.hosting || 'unset')) return false;
+  if (e.resolvedIp) {
+    const tags = Array.isArray(e.networkTags) ? e.networkTags : [];
+    if (list('excludeTags').some((t) => tags.includes(t))) return false;
+    if (list('includeTags').length && !list('includeTags').some((t) => tags.includes(t))) return false;
+  }
+  if (list('components').length && e.fetched && !list('components').some((c) => hasComponent(e, c))) return false;
+  const kv = versionKey(e.version);
+  if (!kv) return list('affected').includes('unknown');
+  if (!list('affected').includes(`${kv[0]}.${kv[1] || 0}`)) return false;
+  const km = a.minVersion ? versionKey(a.minVersion) : null;
+  if (km && kv.length >= km.length && cmpKeys(kv, km) < 0) return false;
+  const kf = a.fixedVersion ? versionKey(a.fixedVersion) : null;
+  if (kf && kv.length >= kf.length && cmpKeys(kv, kf) >= 0) return false;
+  return true;
+}
+
+function endpointName(e) {
+  return e.label || hostOf(e.url);
 }
 
 // "Ziel: 15.11.2026 (in 11 Tagen)" / overdue / no date + how long it's open.
@@ -335,12 +421,75 @@ function presentBaseVersions() {
   return counts;
 }
 
+// Components present in the instance list: [token, label, count].
+function presentComponents(extra) {
+  const counts = new Map([
+    ['rs2', 0],
+    ['renderservice', 0],
+  ]);
+  for (const e of lastEndpoints) {
+    if (hasComponent(e, 'rs2')) counts.set('rs2', counts.get('rs2') + 1);
+    if (hasComponent(e, 'renderservice')) counts.set('renderservice', counts.get('renderservice') + 1);
+    for (const id of new Set(componentIds(e.features))) {
+      counts.set('feature:' + id, (counts.get('feature:' + id) || 0) + 1);
+    }
+    for (const id of new Set(componentIds(e.plugins))) {
+      counts.set('plugin:' + id, (counts.get('plugin:' + id) || 0) + 1);
+    }
+  }
+  for (const c of extra) if (!counts.has(c)) counts.set(c, 0);
+  const order = (c) => (c === 'rs2' ? 0 : c === 'renderservice' ? 1 : c.startsWith('feature:') ? 2 : 3);
+  return [...counts.entries()]
+    .sort(([a], [b]) => order(a) - order(b) || a.localeCompare(b))
+    .map(([c, n]) => [c, componentLabel(c), n]);
+}
+
+// Network tags present in the instance list (+ ones the round already uses).
+function presentTags(extra) {
+  const counts = new Map();
+  for (const e of lastEndpoints) {
+    for (const t of Array.isArray(e.networkTags) ? e.networkTags : []) counts.set(t, (counts.get(t) || 0) + 1);
+  }
+  for (const t of extra) if (!counts.has(t)) counts.set(t, 0);
+  return [...counts.entries()].sort(([a], [b]) => a.localeCompare(b));
+}
+
+function hasAdvancedScope(a) {
+  return (
+    !!a &&
+    !!(
+      a.minVersion ||
+      a.fixedVersion ||
+      ['excludeHosting', 'includeTags', 'excludeTags', 'components', 'includeIds', 'excludeIds'].some(
+        (k) => a[k] && a[k].length
+      )
+    )
+  );
+}
+
 function renderAuditForm(root, audit) {
   const isEdit = !!audit;
   const counts = presentBaseVersions();
   const selected = new Set(audit ? audit.affected : []);
   const extra = new Set([...selected].filter((v) => !counts.has(v)));
   const repoTypes = new Set(audit ? audit.repoTypes : []);
+  const excludeHosting = new Set(audit ? audit.excludeHosting || [] : []);
+  const components = new Set(audit ? audit.components || [] : []);
+  // tag -> 'in' | 'ex'
+  const tagModes = new Map();
+  for (const t of (audit && audit.includeTags) || []) tagModes.set(t, 'in');
+  for (const t of (audit && audit.excludeTags) || []) tagModes.set(t, 'ex');
+  const includeIds = new Set((audit && audit.includeIds) || []);
+  const excludeIds = new Set((audit && audit.excludeIds) || []);
+  const tags = presentTags([...tagModes.keys()]);
+  const comps = presentComponents(components);
+  const byId = new Map(lastEndpoints.map((e) => [e.id, e]));
+  const sortedEps = [...lastEndpoints].sort((x, y) => endpointName(x).localeCompare(endpointName(y)));
+
+  const check = (name, value, label, on, n) =>
+    `<label><input type="checkbox" name="${name}" value="${escapeHtml(value)}" ${on ? 'checked' : ''}> ${escapeHtml(
+      label
+    )}${n != null ? ` <small class="muted">(${n})</small>` : ''}</label>`;
 
   root.innerHTML = `
     <div class="audit-wrap">
@@ -354,14 +503,7 @@ function renderAuditForm(root, audit) {
           <label class="fld">Zieldatum <span class="muted">(optional – Runde bleibt auch danach offen)</span><input name="dueDate" type="date"></label>
           <div class="fld">Umfang <span class="muted">(nichts gewählt = alle Typen)</span>
             <div class="scope-checks">
-              ${['dev', 'staging', 'prod']
-                .map(
-                  (t) =>
-                    `<label><input type="checkbox" name="repoType" value="${t}" ${
-                      repoTypes.has(t) ? 'checked' : ''
-                    }> ${escapeHtml(REPO_TYPE_SHORT[t])}</label>`
-                )
-                .join('')}
+              ${['dev', 'staging', 'prod'].map((t) => check('repoType', t, REPO_TYPE_SHORT[t], repoTypes.has(t))).join('')}
             </div>
           </div>
         </div>
@@ -372,6 +514,53 @@ function renderAuditForm(root, audit) {
           <input class="vers-add-input" placeholder="weitere Version, z. B. 8.1" aria-label="Weitere Version">
           <button type="button" class="secondary vers-add-btn">+ hinzufügen</button>
         </div>
+        <details class="scope-more" ${hasAdvancedScope(audit) ? 'open' : ''}>
+          <summary>Weitere Filter <span class="muted">(Hosting, Netz, Komponenten, Versionsbereich, einzelne Instanzen)</span></summary>
+          <p class="sm muted">Filter schließen nur anhand bekannter Daten aus: Instanzen ohne Abruf, ohne aufgelöste IP oder mit zu ungenauer Version bleiben in der Runde.</p>
+          <div class="grid2">
+            <div class="fld">Hosting ausschließen
+              <div class="scope-checks wrap">
+                ${Object.entries(HOSTING_EXCLUDE_LABELS)
+                  .map(([h, l]) => check('excludeHosting', h, l, excludeHosting.has(h)))
+                  .join('')}
+              </div>
+            </div>
+            <div class="fld">Netz-Tags <span class="muted">(aus ip-ranges.conf)</span>
+              <div class="tag-modes">
+                ${
+                  tags.length
+                    ? tags
+                        .map(
+                          ([t, n]) => `<label class="tag-mode">🌐 ${escapeHtml(t)} <small class="muted">(${n})</small>
+                    <select data-tag="${escapeHtml(t)}" aria-label="Netz-Tag ${escapeHtml(t)}">
+                      <option value="">egal</option>
+                      <option value="in" ${tagModes.get(t) === 'in' ? 'selected' : ''}>nur diese</option>
+                      <option value="ex" ${tagModes.get(t) === 'ex' ? 'selected' : ''}>ausschließen</option>
+                    </select></label>`
+                        )
+                        .join('')
+                    : '<span class="muted">keine Netz-Tags bekannt</span>'
+                }
+              </div>
+            </div>
+            <div class="fld span2">Betroffene Komponente <span class="muted">(mindestens eine muss vorhanden sein; nichts gewählt = egal)</span>
+              <div class="scope-checks wrap comp-checks">
+                ${comps.map(([c, l, n]) => check('component', c, l, components.has(c), n)).join('')}
+              </div>
+            </div>
+            <label class="fld">Betroffen ab Version <span class="muted">(optional, z. B. 10.0.2)</span><input name="minVersion" maxlength="50"></label>
+            <label class="fld">Behoben ab Version <span class="muted">(optional, z. B. 10.0.4)</span><input name="fixedVersion" maxlength="50"></label>
+            <div class="span2 sm muted">Der Versionsbereich greift nur, wenn _about die Version mindestens so genau meldet (z. B. „10.0.4“). Bei „10.0“ bleibt die Instanz in der Runde.</div>
+            <div class="fld">Zusätzlich einschließen <span class="muted">(unabhängig von Version/Filtern)</span>
+              <select class="ids-add" data-kind="include"></select>
+              <div class="id-chips" data-kind="include"></div>
+            </div>
+            <div class="fld">Ausschließen <span class="muted">(hat Vorrang)</span>
+              <select class="ids-add" data-kind="exclude"></select>
+              <div class="id-chips" data-kind="exclude"></div>
+            </div>
+          </div>
+        </details>
         <div class="hint"></div>
         <div class="error-text form-msg"></div>
         <div class="foot">
@@ -387,9 +576,36 @@ function renderAuditForm(root, audit) {
   form.description.value = audit ? audit.description : '';
   form.notes.value = audit ? audit.notes || '' : '';
   form.dueDate.value = audit ? audit.dueDate : '';
+  form.minVersion.value = audit ? audit.minVersion || '' : '';
+  form.fixedVersion.value = audit ? audit.fixedVersion || '' : '';
   const vers = form.querySelector('.vers');
   const hint = form.querySelector('.hint');
   const msg = form.querySelector('.form-msg');
+  const idSets = { include: includeIds, exclude: excludeIds };
+
+  const checked = (name) => [...form.querySelectorAll(`input[name=${name}]:checked`)].map((i) => i.value);
+
+  // The scope as it would be saved (also drives the live count).
+  function currentScope() {
+    const includeTags = [];
+    const excludeTags = [];
+    for (const sel of form.querySelectorAll('select[data-tag]')) {
+      if (sel.value === 'in') includeTags.push(sel.dataset.tag);
+      if (sel.value === 'ex') excludeTags.push(sel.dataset.tag);
+    }
+    return {
+      affected: [...selected],
+      repoTypes: checked('repoType'),
+      excludeHosting: checked('excludeHosting'),
+      components: checked('component'),
+      includeTags,
+      excludeTags,
+      minVersion: form.minVersion.value.trim(),
+      fixedVersion: form.fixedVersion.value.trim(),
+      includeIds: [...includeIds],
+      excludeIds: [...excludeIds],
+    };
+  }
 
   function renderTiles() {
     const all = [...counts.keys(), ...extra].filter((v, i, arr) => arr.indexOf(v) === i);
@@ -406,13 +622,26 @@ function renderAuditForm(root, audit) {
     updateHint();
   }
 
-  function scopedCount() {
-    const types = [...form.querySelectorAll('input[name=repoType]:checked')].map((i) => i.value);
-    return lastEndpoints.filter((e) => {
-      if (types.length && !types.includes(e.repoType)) return false;
-      const k = versionKey(e.version);
-      return selected.has(k ? `${k[0]}.${k[1] || 0}` : 'unknown');
-    }).length;
+  function renderIdPickers() {
+    for (const kind of ['include', 'exclude']) {
+      const set = idSets[kind];
+      const sel = form.querySelector(`.ids-add[data-kind=${kind}]`);
+      sel.innerHTML =
+        `<option value="">${kind === 'include' ? 'Instanz einschließen…' : 'Instanz ausschließen…'}</option>` +
+        sortedEps
+          .filter((e) => !set.has(e.id))
+          .map((e) => `<option value="${escapeHtml(e.id)}">${escapeHtml(endpointName(e))}</option>`)
+          .join('');
+      form.querySelector(`.id-chips[data-kind=${kind}]`).innerHTML = [...set]
+        .map((id) => {
+          const e = byId.get(id);
+          const name = e ? endpointName(e) : id + ' (gelöscht)';
+          return `<span class="chip id-chip">${escapeHtml(name)}<button type="button" class="chip-x" data-kind="${kind}" data-id="${escapeHtml(
+            id
+          )}" aria-label="${escapeHtml(name)} entfernen">×</button></span>`;
+        })
+        .join('');
+    }
   }
 
   function updateHint() {
@@ -420,12 +649,27 @@ function renderAuditForm(root, audit) {
       hint.innerHTML = 'Mindestens eine betroffene Basisversion auswählen.';
       return;
     }
-    const n = scopedCount();
+    const scope = currentScope();
+    const basic = { affected: scope.affected, repoTypes: scope.repoTypes };
+    let n = 0;
+    let dropped = 0;
+    let added = 0;
+    for (const e of lastEndpoints) {
+      const full = clientInScope(scope, e);
+      const base = clientInScope(basic, e);
+      if (full) n++;
+      if (base && !full) dropped++;
+      if (full && !base) added++;
+    }
+    const extras = [];
+    if (dropped) extras.push(`${dropped} durch weitere Filter ausgeschlossen`);
+    if (added) extras.push(`${added} manuell eingeschlossen`);
+    const diffText = extras.length ? ` (${extras.join(', ')})` : '';
     hint.innerHTML = isEdit
-      ? `→ aktuell <b>${n} Instanzen</b> im Umfang. Neu hinzukommende werden als ${pill(
+      ? `→ aktuell <b>${n} Instanzen</b> im Umfang${escapeHtml(diffText)}. Neu hinzukommende werden als ${pill(
           'open'
-        )} ergänzt; bestehende Einträge und ihr Status bleiben erhalten.`
-      : `→ <b>${n} Instanzen</b> werden in die Runde aufgenommen, alle mit Status ${pill(
+        )} ergänzt; offene Instanzen außerhalb des Umfangs werden „nicht (mehr) betroffen“, bearbeitete Einträge behalten ihren Status.`
+      : `→ <b>${n} Instanzen</b> werden in die Runde aufgenommen${escapeHtml(diffText)}, alle mit Status ${pill(
           'open'
         )}. Instanzen, die später hinzukommen oder auf eine betroffene Version wechseln, werden automatisch ergänzt.`;
   }
@@ -439,7 +683,25 @@ function renderAuditForm(root, audit) {
     renderTiles();
   });
   form.addEventListener('change', (ev) => {
-    if (ev.target.name === 'repoType') updateHint();
+    const t = ev.target;
+    if (t.classList.contains('ids-add')) {
+      if (!t.value) return;
+      const kind = t.dataset.kind;
+      idSets[kind].add(t.value);
+      idSets[kind === 'include' ? 'exclude' : 'include'].delete(t.value);
+      renderIdPickers();
+    }
+    updateHint();
+  });
+  form.addEventListener('input', (ev) => {
+    if (ev.target.name === 'minVersion' || ev.target.name === 'fixedVersion') updateHint();
+  });
+  form.addEventListener('click', (ev) => {
+    const x = ev.target.closest('.chip-x');
+    if (!x) return;
+    idSets[x.dataset.kind].delete(x.dataset.id);
+    renderIdPickers();
+    updateHint();
   });
   const addInput = form.querySelector('.vers-add-input');
   const addVersion = () => {
@@ -472,8 +734,7 @@ function renderAuditForm(root, audit) {
       description: form.description.value,
       notes: form.notes.value,
       dueDate: form.dueDate.value,
-      repoTypes: [...form.querySelectorAll('input[name=repoType]:checked')].map((i) => i.value),
-      affected: [...selected],
+      ...currentScope(),
     };
     try {
       const { audit: saved } = isEdit
@@ -486,6 +747,7 @@ function renderAuditForm(root, audit) {
     }
   });
 
+  renderIdPickers();
   renderTiles();
   form.title.focus();
 }
@@ -568,23 +830,59 @@ function renderAuditDetail(root, a) {
         <div class="kpi"><b>${c.accepted}</b>akzeptiert</div>
         <div class="kpi"><b class="k-na">${c['not-affected']}</b>nicht mehr betroffen</div>
       </div>
+      <div class="audit-filters" role="search">
+        <input type="search" class="af-q" placeholder="Suchen (Instanz, URL, Kommentar)…" aria-label="Instanzen der Runde durchsuchen">
+        <select class="af-status" aria-label="Nach Status filtern">
+          <option value="">Alle Status</option>
+          ${Object.entries(AUDIT_STATUS)
+            .map(([k, st]) => `<option value="${k}">${st.icon} ${escapeHtml(st.label)}</option>`)
+            .join('')}
+          ${open ? '' : '<option value="openAtClose">offen bei Abschluss</option>'}
+        </select>
+        <select class="af-type" aria-label="Nach Typ filtern">
+          <option value="">Alle Typen</option>
+          ${Object.entries(REPO_TYPE_SHORT)
+            .map(([k, l]) => `<option value="${k}">${escapeHtml(l)}</option>`)
+            .join('')}
+          <option value="none">ohne Typ</option>
+        </select>
+        <select class="af-hosting" aria-label="Nach Hosting filtern">
+          <option value="">Alle Hostings</option>
+          ${Object.entries(HOSTING_EXCLUDE_LABELS)
+            .map(([k, l]) => `<option value="${k}">${escapeHtml(l)}</option>`)
+            .join('')}
+        </select>
+        <select class="af-touch" aria-label="Nach Bearbeitung filtern">
+          <option value="">Alle Einträge</option>
+          <option value="mine">von mir bearbeitet</option>
+          <option value="untouched">noch nie manuell bearbeitet</option>
+        </select>
+        <label class="af-check"><input type="checkbox" class="af-removed"> Gelöschte ausblenden</label>
+        <span class="sm af-count" aria-live="polite"></span>
+      </div>
       <span class="sm save-msg" aria-live="polite"></span>
       <div class="list-wrap">
       <table class="audit-table">
-        <thead><tr><th>Instanz</th><th>Version</th><th>Typ</th><th>Status</th><th>Kommentar</th><th>Zuletzt geändert</th></tr></thead>
+        <thead><tr><th>Instanz</th><th>Version</th><th>Typ / Hosting</th><th>Status</th><th>Kommentar</th><th>Zuletzt geändert</th></tr></thead>
         <tbody>
           ${
             entries.length
               ? entries
                   .map(
                     ([id, e]) => `
-            <tr class="${e.removed ? 'removed' : e.status === 'not-affected' ? 'na' : ''}">
-              <td><b>${escapeHtml(e.label || hostOf(e.url))}</b>${e.removed ? ' <span class="sm">(Instanz gelöscht)</span>' : ''}
+            <tr data-id="${escapeHtml(id)}" class="${e.removed ? 'removed' : e.status === 'not-affected' ? 'na' : ''}">
+              <td><b>${escapeHtml(e.label || hostOf(e.url))}</b>${e.removed ? ' <span class="sm">(Instanz gelöscht)</span>' : ''}${
+                (a.excludeIds || []).includes(id)
+                  ? ' <span class="sm">(manuell ausgeschlossen)</span>'
+                  : (a.includeIds || []).includes(id)
+                    ? ' <span class="sm">(manuell eingeschlossen)</span>'
+                    : ''
+              }
                 <div class="sm">${escapeHtml(hostOf(e.url))}</div></td>
               <td><span class="badge version">${escapeHtml(e.version || 'unbekannt')}</span></td>
               <td>${
                 e.repoType ? `<span class="badge repo repo-${escapeHtml(e.repoType)}">${escapeHtml(REPO_TYPE_SHORT[e.repoType] || e.repoType)}</span>` : ''
-              }</td>
+              }${e.hosting && HOSTING_SHORT[e.hosting] ? ` <span class="badge hosting">${escapeHtml(HOSTING_SHORT[e.hosting])}</span>` : ''}</td>
               <td>${statusCell(id, e)}</td>
               <td>${commentCell(id, e)}</td>
               <td class="sm" title="${escapeHtml(logTitle(e))}">${
@@ -593,8 +891,9 @@ function renderAuditDetail(root, a) {
             </tr>`
                   )
                   .join('')
-              : '<tr><td colspan="6" class="muted">Keine Instanzen mit den betroffenen Versionen.</td></tr>'
+              : '<tr><td colspan="6" class="muted">Keine Instanzen im Umfang der Runde.</td></tr>'
           }
+          <tr class="af-empty hidden"><td colspan="6" class="muted">Keine Instanzen passen zum Filter.</td></tr>
         </tbody>
       </table>
       </div>
@@ -616,6 +915,8 @@ function renderAuditDetail(root, a) {
   for (const input of root.querySelectorAll('.entry-comment')) {
     input.value = a.entries[input.dataset.id].comment || '';
   }
+
+  wireDetailFilters(root, a);
 
   const saveMsg = root.querySelector('.save-msg');
   async function saveEntry(id, patch) {
@@ -665,6 +966,64 @@ function renderAuditDetail(root, a) {
       }
     });
   }
+}
+
+function entryMatchesFilter(e, f) {
+  if (f.hideRemoved && e.removed) return false;
+  if (f.status === 'openAtClose') {
+    if (!e.openAtClose) return false;
+  } else if (f.status && e.status !== f.status) return false;
+  if (f.type && (e.repoType || 'none') !== f.type) return false;
+  if (f.hosting && (e.hosting || 'unset') !== f.hosting) return false;
+  const manual = (e.log || []).filter((l) => l.by && l.by !== 'system');
+  if (f.touch === 'mine' && !manual.some((l) => l.by === currentUser)) return false;
+  if (f.touch === 'untouched' && manual.length) return false;
+  if (f.q) {
+    const hay = [e.label, e.url, e.comment, e.version].filter(Boolean).join(' ').toLowerCase();
+    if (!hay.includes(f.q.toLowerCase())) return false;
+  }
+  return true;
+}
+
+// Detail-table view filters: hide rows in place (no re-render, so the search
+// field keeps focus). State lives in auditDetailFilter across re-renders.
+function wireDetailFilters(root, a) {
+  const f = auditDetailFilter;
+  const ctl = {
+    q: root.querySelector('.af-q'),
+    status: root.querySelector('.af-status'),
+    type: root.querySelector('.af-type'),
+    hosting: root.querySelector('.af-hosting'),
+    touch: root.querySelector('.af-touch'),
+  };
+  const removedCb = root.querySelector('.af-removed');
+  // A closed-round-only option may not exist on an open round.
+  if (f.status === 'openAtClose' && a.status === 'open') f.status = '';
+  for (const [k, el] of Object.entries(ctl)) el.value = f[k];
+  removedCb.checked = f.hideRemoved;
+
+  const apply = () => {
+    const rows = root.querySelectorAll('.audit-table tbody tr[data-id]');
+    let shown = 0;
+    for (const tr of rows) {
+      const ok = entryMatchesFilter(a.entries[tr.dataset.id], f);
+      tr.classList.toggle('hidden', !ok);
+      if (ok) shown++;
+    }
+    root.querySelector('.af-empty').classList.toggle('hidden', !rows.length || shown > 0);
+    root.querySelector('.af-count').textContent = shown === rows.length ? '' : `${shown} von ${rows.length} angezeigt`;
+  };
+  for (const [k, el] of Object.entries(ctl)) {
+    el.addEventListener(k === 'q' ? 'input' : 'change', () => {
+      f[k] = el.value;
+      apply();
+    });
+  }
+  removedCb.addEventListener('change', () => {
+    f.hideRemoved = removedCb.checked;
+    apply();
+  });
+  apply();
 }
 
 // Inline editor for the round's Vermerke.

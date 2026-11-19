@@ -15,20 +15,29 @@
 //   id, title, description, link, dueDate ('YYYY-MM-DD' | ''),
 //   notes (free text: new minimum version, git commits / MR links, …),
 //   affected: ['10.0', '9.1', 'unknown'], repoTypes: [] (empty = all),
+//   scope filters (all optional, empty = no restriction, see inScope()):
+//     excludeHosting: ['external', 'unset'], includeTags: [], excludeTags: [],
+//     components: ['rs2', 'renderservice', 'feature:<id>', 'plugin:<id>'],
+//     minVersion: '', fixedVersion: '', includeIds: [], excludeIds: [],
 //   status: 'open' | 'closed', createdAt, createdBy, updatedAt,
 //   closedAt, closedBy, closeNote,
 //   history: [{ at, by, action, note }],
-//   entries: { <endpointId>: { label, url, version, repoType, status, comment,
+//   entries: { <endpointId>: { label, url, version, repoType, hosting, status, comment,
 //              addedAt, updatedAt, updatedBy, removed, openAtClose,
 //              log: [{ at, by, status, comment }] } }
 // }
 import crypto from 'node:crypto';
 
 import { loadAudit, loadAudits, saveAudit, loadMerged } from './store.js';
-import { minorOf } from './version.js';
+import { minorOf, versionKey, compareKeys } from './version.js';
 
 export const ENTRY_STATUSES = ['open', 'patched', 'accepted', 'not-affected'];
 const REPO_TYPES = ['dev', 'staging', 'prod'];
+// Hosting values a round can exclude; 'unset' = endpoint without a hosting.
+const HOSTING_EXCLUDES = ['cluster', 'docker', 'external', 'unset'];
+const COMPONENT_RE = /^(rs2|renderservice|(feature|plugin):[^\s]{1,200})$/;
+const ENDPOINT_ID_RE = /^[\w-]{1,100}$/;
+const LIST_MAX = 200;
 const BASE_VERSION_RE = /^\d+\.\d+$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const SYSTEM = 'system';
@@ -93,6 +102,61 @@ function normalizeRepoTypes(list) {
   return [...new Set(list)];
 }
 
+// Generic list validator: dedupes, trims, enforces a pattern / allow-list.
+function normalizeList(list, name, check) {
+  if (list == null) return [];
+  if (!Array.isArray(list)) throw new AuditError(400, name + ' must be a list');
+  if (list.length > LIST_MAX) throw new AuditError(400, name + ': too many entries');
+  const out = [];
+  for (const raw of list) {
+    const v = String(raw).trim();
+    if (!check(v)) throw new AuditError(400, `Invalid ${name}: ${v}`);
+    if (!out.includes(v)) out.push(v);
+  }
+  return out;
+}
+
+const SCOPE_LISTS = {
+  excludeHosting: (v) => HOSTING_EXCLUDES.includes(v),
+  includeTags: (v) => v.length > 0 && v.length <= 100,
+  excludeTags: (v) => v.length > 0 && v.length <= 100,
+  components: (v) => COMPONENT_RE.test(v),
+  includeIds: (v) => ENDPOINT_ID_RE.test(v),
+  excludeIds: (v) => ENDPOINT_ID_RE.test(v),
+};
+
+// Optional full version bound ('' = none), e.g. "10.0.4".
+function normalizeVersionBound(v, name) {
+  const s = str(v, 50);
+  if (s === '') return '';
+  if (!/^\d+(\.\d+)*$/.test(s)) throw new AuditError(400, 'Invalid ' + name);
+  return s;
+}
+
+// Validate and apply every scope field present in `payload` onto `target`.
+// Returns the names of the fields that were set.
+function applyScope(target, payload, { all = false } = {}) {
+  const set = [];
+  for (const [k, check] of Object.entries(SCOPE_LISTS)) {
+    if (all || payload[k] !== undefined) {
+      target[k] = normalizeList(payload[k], k, check);
+      set.push(k);
+    }
+  }
+  for (const k of ['minVersion', 'fixedVersion']) {
+    if (all || payload[k] !== undefined) {
+      target[k] = normalizeVersionBound(payload[k], k);
+      set.push(k);
+    }
+  }
+  if (target.minVersion && target.fixedVersion) {
+    const lo = versionKey(target.minVersion);
+    const hi = versionKey(target.fixedVersion);
+    if (compareKeys(lo, hi) >= 0) throw new AuditError(400, 'minVersion must be below fixedVersion');
+  }
+  return set;
+}
+
 function normalizeDate(v) {
   const s = str(v, 20);
   if (s === '') return '';
@@ -115,13 +179,75 @@ function normalizeLink(v) {
 
 // ---------- scope / sync ----------
 
-function inScope(audit, ep) {
-  if (audit.repoTypes && audit.repoTypes.length && !audit.repoTypes.includes(ep.repoType)) {
-    return false;
+// Ids of features / plugins as reported by _about (arrays of {id} objects or
+// strings; an object map falls back to its keys).
+function idsOf(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((v) => (v && typeof v === 'object' ? (v.id != null ? v.id : v.name) : v))
+      .filter((v) => v != null)
+      .map(String);
   }
+  if (value && typeof value === 'object') return Object.keys(value);
+  return [];
+}
+
+function hasComponent(ep, c) {
+  if (c === 'rs2') return ep.rs2 === true;
+  if (c === 'renderservice') return ep.renderservice != null && ep.renderservice !== '';
+  if (c.startsWith('feature:')) return idsOf(ep.features).includes(c.slice(8));
+  if (c.startsWith('plugin:')) return idsOf(ep.plugins).includes(c.slice(7));
+  return false;
+}
+
+// Decide whether `ep` belongs to the round. Returns { in, reason, sure } where
+// `reason` (German) explains an exclusion and `sure` is false when the
+// exclusion only stems from an unknown version (then an open entry is kept). Safety rule: a filter only excludes
+// on known data — an attribute that is unknown (never fetched, DNS failed,
+// version without the needed precision) keeps the instance in scope. The one
+// exception is the pre-existing repoTypes allow-list, which requires a match.
+export function inScope(audit, ep) {
+  const out = (reason, sure = true) => ({ in: false, reason, sure });
+  const ids = (k) => audit[k] || [];
+  if (ids('excludeIds').includes(ep.id)) return out('manuell ausgeschlossen');
+  if (ids('includeIds').includes(ep.id)) return { in: true, reason: '' };
+
+  if (audit.repoTypes && audit.repoTypes.length && !audit.repoTypes.includes(ep.repoType)) {
+    return out('Typ nicht im Umfang');
+  }
+  const hosting = ep.hosting || 'unset';
+  if (ids('excludeHosting').includes(hosting)) return out('Hosting ausgeschlossen');
+
+  // Network tags are only known once the host resolved to an IP.
+  if (ep.resolvedIp) {
+    const tags = Array.isArray(ep.networkTags) ? ep.networkTags : [];
+    if (ids('excludeTags').some((t) => tags.includes(t))) return out('Netz-Tag ausgeschlossen');
+    if (ids('includeTags').length && !ids('includeTags').some((t) => tags.includes(t))) {
+      return out('kein passender Netz-Tag');
+    }
+  }
+
+  // Components are only known after a successful _about fetch.
+  if (ids('components').length && ep.raw != null && !ids('components').some((c) => hasComponent(ep, c))) {
+    return out('betroffene Komponente nicht vorhanden');
+  }
+
   const base = minorOf(ep.version);
-  if (base == null) return audit.affected.includes('unknown');
-  return audit.affected.includes(base);
+  if (base == null) return audit.affected.includes('unknown') ? { in: true, reason: '' } : out('Version unbekannt', false);
+  if (!audit.affected.includes(base)) return out('Basisversion nicht betroffen');
+
+  // Optional full-version range. Only applies when the reported version is at
+  // least as precise as the bound (a bare "10.0" can't prove "10.0.4" or later).
+  const kv = versionKey(ep.version);
+  if (audit.minVersion) {
+    const km = versionKey(audit.minVersion);
+    if (kv.length >= km.length && compareKeys(kv, km) < 0) return out('Version unterhalb des betroffenen Bereichs');
+  }
+  if (audit.fixedVersion) {
+    const kf = versionKey(audit.fixedVersion);
+    if (kv.length >= kf.length && compareKeys(kv, kf) >= 0) return out('Version enthält den Fix');
+  }
+  return { in: true, reason: '' };
 }
 
 function pushLog(entry, at, by, status, comment) {
@@ -141,7 +267,8 @@ export function syncAudit(audit, endpoints, now = new Date().toISOString()) {
   for (const ep of endpoints) {
     seen.add(ep.id);
     const entry = audit.entries[ep.id];
-    const affected = inScope(audit, ep);
+    const scope = inScope(audit, ep);
+    const affected = scope.in;
 
     if (!entry) {
       if (!affected) continue;
@@ -150,6 +277,7 @@ export function syncAudit(audit, endpoints, now = new Date().toISOString()) {
         url: ep.url || '',
         version: ep.version || null,
         repoType: ep.repoType || '',
+        hosting: ep.hosting || '',
         status: 'open',
         comment: '',
         addedAt: now,
@@ -168,6 +296,7 @@ export function syncAudit(audit, endpoints, now = new Date().toISOString()) {
       ['label', ep.label || ''],
       ['url', ep.url || ''],
       ['repoType', ep.repoType || ''],
+      ['hosting', ep.hosting || ''],
     ]) {
       if (entry[k] !== v) {
         entry[k] = v;
@@ -183,9 +312,11 @@ export function syncAudit(audit, endpoints, now = new Date().toISOString()) {
       changed = true;
     }
 
-    const knownBase = minorOf(ep.version);
-    if (entry.status === 'open' && !affected && knownBase != null) {
-      const note = `automatisch: Upgrade ${prevVersion || '?'} → ${ep.version} erkannt`;
+    if (entry.status === 'open' && !affected && scope.sure) {
+      const upgraded = prevVersion && ep.version !== prevVersion;
+      const note = upgraded
+        ? `automatisch: Upgrade ${prevVersion} → ${ep.version} erkannt (${scope.reason})`
+        : `automatisch: außerhalb des Umfangs (${scope.reason})`;
       entry.status = 'not-affected';
       entry.comment = entry.comment || note;
       entry.updatedAt = now;
@@ -194,7 +325,7 @@ export function syncAudit(audit, endpoints, now = new Date().toISOString()) {
       changed = true;
     } else if (entry.status === 'not-affected' && entry.updatedBy === SYSTEM && affected) {
       // Auto-marked earlier but back on an affected version (e.g. downgrade).
-      const note = `automatisch: wieder betroffene Version ${ep.version || 'unbekannt'}`;
+      const note = `automatisch: wieder im Umfang (Version ${ep.version || 'unbekannt'})`;
       entry.status = 'open';
       entry.updatedAt = now;
       pushLog(entry, now, SYSTEM, 'open', note);
@@ -305,6 +436,7 @@ export async function createAudit(payload, by) {
     history: [{ at: now, by, action: 'created', note: '' }],
     entries: {},
   };
+  applyScope(audit, payload, { all: true });
   syncAudit(audit, await loadMerged(), now);
   await saveAudit(audit);
   return { ...audit, counts: countsOf(audit) };
@@ -325,22 +457,30 @@ function requireOpen(audit) {
   if (audit.status !== 'open') throw new AuditError(409, 'Runde ist abgeschlossen');
 }
 
+const EDITABLE_FIELDS = [
+  'title', 'description', 'notes', 'link', 'dueDate', 'affected', 'repoTypes',
+  ...Object.keys(SCOPE_LISTS), 'minVersion', 'fixedVersion',
+];
+
 export function updateAudit(id, payload, by) {
   return mutate(id, (a) => {
     requireOpen(a);
-    const changed = [];
+    const prev = Object.fromEntries(EDITABLE_FIELDS.map((k) => [k, JSON.stringify(a[k] ?? null)]));
     if (payload.title !== undefined) {
       const t = str(payload.title, 300);
       if (!t) throw new AuditError(400, 'title is required');
       a.title = t;
-      changed.push('title');
     }
-    if (payload.description !== undefined) (a.description = str(payload.description)), changed.push('description');
-    if (payload.notes !== undefined) (a.notes = str(payload.notes, NOTES_MAX)), changed.push('notes');
-    if (payload.link !== undefined) (a.link = normalizeLink(payload.link)), changed.push('link');
-    if (payload.dueDate !== undefined) (a.dueDate = normalizeDate(payload.dueDate)), changed.push('dueDate');
-    if (payload.affected !== undefined) (a.affected = normalizeAffected(payload.affected)), changed.push('affected');
-    if (payload.repoTypes !== undefined) (a.repoTypes = normalizeRepoTypes(payload.repoTypes)), changed.push('repoTypes');
+    if (payload.description !== undefined) a.description = str(payload.description);
+    if (payload.notes !== undefined) a.notes = str(payload.notes, NOTES_MAX);
+    if (payload.link !== undefined) a.link = normalizeLink(payload.link);
+    if (payload.dueDate !== undefined) a.dueDate = normalizeDate(payload.dueDate);
+    if (payload.affected !== undefined) a.affected = normalizeAffected(payload.affected);
+    if (payload.repoTypes !== undefined) a.repoTypes = normalizeRepoTypes(payload.repoTypes);
+    applyScope(a, payload);
+    // History lists only the fields whose value actually changed.
+    const changed = EDITABLE_FIELDS.filter((k) => JSON.stringify(a[k] ?? null) !== prev[k]);
+    if (!changed.length) return;
     const now = new Date().toISOString();
     a.updatedAt = now;
     a.history.push({ at: now, by, action: 'edited', note: changed.join(', ') });
@@ -408,6 +548,40 @@ const STATUS_DE = {
   'not-affected': 'nicht (mehr) betroffen',
 };
 
+const REPO_TYPE_DE = { dev: 'Dev', staging: 'Staging', prod: 'Prod' };
+const HOSTING_DE = { cluster: 'K8S', docker: 'Docker', external: 'Extern', unset: 'ohne Angabe' };
+
+function componentDe(c) {
+  if (c === 'rs2') return 'RS2';
+  if (c === 'renderservice') return 'Rendering-Service';
+  if (c.startsWith('feature:')) return 'Feature ' + c.slice(8);
+  if (c.startsWith('plugin:')) return 'Plugin ' + c.slice(7);
+  return c;
+}
+
+// Human-readable (German) description of a round's scope, for export and UI.
+export function scopeSummary(a) {
+  const parts = [
+    'Basisversionen: ' + (a.affected || []).map((v) => (v === 'unknown' ? 'unbekannt' : v)).join(', '),
+  ];
+  const list = (k) => a[k] || [];
+  if (a.minVersion || a.fixedVersion) {
+    parts.push(
+      'Version: ' + [a.minVersion && 'ab ' + a.minVersion, a.fixedVersion && 'behoben ab ' + a.fixedVersion].filter(Boolean).join(', ')
+    );
+  }
+  if (list('repoTypes').length) parts.push('nur Typ: ' + list('repoTypes').map((t) => REPO_TYPE_DE[t] || t).join(', '));
+  if (list('excludeHosting').length) {
+    parts.push('ohne Hosting: ' + list('excludeHosting').map((h) => HOSTING_DE[h] || h).join(', '));
+  }
+  if (list('includeTags').length) parts.push('nur Netz: ' + list('includeTags').join(', '));
+  if (list('excludeTags').length) parts.push('ohne Netz: ' + list('excludeTags').join(', '));
+  if (list('components').length) parts.push('Komponente: ' + list('components').map(componentDe).join(' oder '));
+  if (list('includeIds').length) parts.push(`${list('includeIds').length} manuell eingeschlossen`);
+  if (list('excludeIds').length) parts.push(`${list('excludeIds').length} manuell ausgeschlossen`);
+  return parts.join(' · ');
+}
+
 function csvCell(v) {
   let s = v == null ? '' : String(v);
   // Neutralize spreadsheet formula injection.
@@ -418,18 +592,21 @@ function csvCell(v) {
 // Semicolon-separated (German Excel default), with BOM added by the route.
 export function auditCsv(audit) {
   const rows = [
-    ['Runde', 'Instanz', 'URL', 'Version', 'Typ', 'Status', 'Offen bei Abschluss', 'Kommentar', 'Geändert am', 'Geändert von', 'Gelöscht'],
+    ['Runde', 'Umfang', 'Instanz', 'URL', 'Version', 'Typ', 'Hosting', 'Status', 'Offen bei Abschluss', 'Kommentar', 'Geändert am', 'Geändert von', 'Gelöscht'],
   ];
+  const scope = scopeSummary(audit);
   const entries = Object.values(audit.entries || {}).sort((a, b) =>
     String(a.label).localeCompare(String(b.label))
   );
   for (const e of entries) {
     rows.push([
       audit.title,
+      scope,
       e.label,
       e.url,
       e.version || 'unbekannt',
       e.repoType || '',
+      e.hosting ? HOSTING_DE[e.hosting] || e.hosting : '',
       STATUS_DE[e.status] || e.status,
       e.openAtClose ? 'ja' : '',
       e.comment,

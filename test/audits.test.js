@@ -9,7 +9,7 @@ import path from 'node:path';
 
 process.env.DATA_DIR = mkdtempSync(path.join(os.tmpdir(), 'evv-audit-'));
 const { buildApp } = await import('../src/app.js');
-const { syncAudit } = await import('../src/audits.js');
+const { syncAudit, scopeSummary } = await import('../src/audits.js');
 
 const ADMIN = 'Basic ' + Buffer.from('admin:pw').toString('base64');
 const VIEWER = 'Basic ' + Buffer.from('viewer:vpw').toString('base64');
@@ -228,7 +228,8 @@ test('CSV export (semicolon, BOM, formula-safe)', async () => {
   const res = await req('GET', `/api/audits/${auditId}/export.csv`, ADMIN);
   assert.equal(res.statusCode, 200);
   assert.match(res.headers['content-type'], /text\/csv/);
-  assert.ok(res.body.startsWith('﻿Runde;Instanz;'));
+  assert.ok(res.body.startsWith('﻿Runde;Umfang;Instanz;'));
+  assert.match(res.body, /Basisversionen: 10\.0, 9\.1, 10\.1/);
   assert.match(res.body, /'=HYPERLINK/);
   assert.match(res.body, /Alpha/);
 });
@@ -264,4 +265,121 @@ test('syncAudit: unknown version only matches when "unknown" is affected', () =>
     { id: 'd', version: '10.0', repoType: 'dev' },
   ]);
   assert.deepEqual(Object.keys(scoped.entries), ['p']);
+});
+
+test('scope filters: validation', async () => {
+  const bad = [
+    { excludeHosting: ['cloud'] },
+    { excludeHosting: 'external' },
+    { components: ['feature:'] },
+    { components: ['widget'] },
+    { includeIds: ['../x'] },
+    { minVersion: '10.x' },
+    { minVersion: '10.0.5', fixedVersion: '10.0.5' },
+  ];
+  for (const extra of bad) {
+    const res = await req('POST', '/api/audits', ADMIN, { title: 'x', affected: ['10.0'], ...extra });
+    assert.equal(res.statusCode, 400, JSON.stringify(extra));
+  }
+  const res = await req('POST', '/api/audits', ADMIN, {
+    title: 'scoped',
+    affected: ['10.0'],
+    excludeHosting: ['external', 'external'],
+    components: ['rs2', 'plugin:foo'],
+    fixedVersion: '10.0.4',
+  });
+  assert.equal(res.statusCode, 201, res.body);
+  const a = res.json().audit;
+  assert.deepEqual(a.excludeHosting, ['external']);
+  assert.deepEqual(a.includeTags, []);
+  assert.equal(a.fixedVersion, '10.0.4');
+});
+
+const ep = (id, extra = {}) => ({
+  id,
+  version: '10.0',
+  repoType: 'prod',
+  hosting: 'cluster',
+  resolvedIp: '10.1.2.3',
+  networkTags: ['gwdg'],
+  raw: {},
+  rs2: false,
+  renderservice: null,
+  features: [{ id: 'dataprotection' }],
+  plugins: ['foo'],
+  ...extra,
+});
+const round = (extra) => ({ status: 'open', affected: ['10.0'], repoTypes: [], entries: {}, ...extra });
+const scoped = (extra, eps) => {
+  const a = round(extra);
+  syncAudit(a, eps);
+  return Object.keys(a.entries).sort();
+};
+
+test('syncAudit: hosting exclusion; unset hosting stays unless excluded', () => {
+  const eps = [ep('k'), ep('x', { hosting: 'external' }), ep('n', { hosting: '' })];
+  assert.deepEqual(scoped({ excludeHosting: ['external'] }, eps), ['k', 'n']);
+  assert.deepEqual(scoped({ excludeHosting: ['external', 'unset'] }, eps), ['k']);
+});
+
+test('syncAudit: network tags include/exclude; unresolved host stays in', () => {
+  const eps = [ep('g'), ep('o', { networkTags: ['other'] }), ep('u', { resolvedIp: null, networkTags: [] })];
+  assert.deepEqual(scoped({ includeTags: ['gwdg'] }, eps), ['g', 'u']);
+  assert.deepEqual(scoped({ excludeTags: ['gwdg'] }, eps), ['o', 'u']);
+});
+
+test('syncAudit: components match any; never-fetched instance stays in', () => {
+  const eps = [
+    ep('rs', { rs2: true }),
+    ep('fe'),
+    ep('pl', { features: [], plugins: [{ id: 'bar' }] }),
+    ep('none', { features: [], plugins: [] }),
+    ep('new', { raw: null, features: null, plugins: null }),
+  ];
+  assert.deepEqual(scoped({ components: ['rs2'] }, eps), ['new', 'rs']);
+  assert.deepEqual(scoped({ components: ['feature:dataprotection', 'plugin:bar'] }, eps), ['fe', 'new', 'pl', 'rs']);
+});
+
+test('syncAudit: version range only applies with enough precision', () => {
+  const eps = [ep('old', { version: '10.0.2' }), ep('fix', { version: '10.0.4' }), ep('base', { version: '10.0' })];
+  assert.deepEqual(scoped({ minVersion: '10.0.3' }, eps), ['base', 'fix']);
+  assert.deepEqual(scoped({ fixedVersion: '10.0.4' }, eps), ['base', 'old']);
+});
+
+test('syncAudit: manual include/exclude; exclude wins', () => {
+  const eps = [ep('a'), ep('b', { version: '8.0' }), ep('c')];
+  assert.deepEqual(scoped({ includeIds: ['b'], excludeIds: ['c'] }, eps), ['a', 'b']);
+  assert.deepEqual(scoped({ includeIds: ['a'], excludeIds: ['a'] }, eps), ['c']);
+});
+
+test('syncAudit: scope change marks open entries not-affected and back', () => {
+  const a = round({});
+  syncAudit(a, [ep('x', { hosting: 'external', version: null })]);
+  a.affected.push('unknown');
+  syncAudit(a, [ep('x', { hosting: 'external', version: null })]);
+  assert.equal(a.entries.x.status, 'open');
+  a.excludeHosting = ['external'];
+  syncAudit(a, [ep('x', { hosting: 'external', version: null })]);
+  assert.equal(a.entries.x.status, 'not-affected'); // also with unknown version
+  assert.match(a.entries.x.comment, /Hosting ausgeschlossen/);
+  a.excludeHosting = [];
+  syncAudit(a, [ep('x', { hosting: 'external', version: null })]);
+  assert.equal(a.entries.x.status, 'open');
+  // Patched entries are never touched by scope changes.
+  a.entries.x.status = 'patched';
+  a.entries.x.updatedBy = 'admin';
+  a.excludeIds = ['x'];
+  syncAudit(a, [ep('x', { hosting: 'external', version: null })]);
+  assert.equal(a.entries.x.status, 'patched');
+});
+
+test('scopeSummary describes all filters', () => {
+  const s = scopeSummary(
+    round({ affected: ['10.0', 'unknown'], excludeHosting: ['external'], components: ['rs2'], fixedVersion: '10.0.4', excludeIds: ['a'] })
+  );
+  assert.match(s, /Basisversionen: 10\.0, unbekannt/);
+  assert.match(s, /ohne Hosting: Extern/);
+  assert.match(s, /Komponente: RS2/);
+  assert.match(s, /behoben ab 10\.0\.4/);
+  assert.match(s, /1 manuell ausgeschlossen/);
 });

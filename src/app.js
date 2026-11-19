@@ -48,10 +48,11 @@ const RANK = { viewer: 1, admin: 2 };
 // Public instance list: ?target=<key> -> the endpoint flag it filters on.
 const PUBLIC_TARGETS = { app: 'showInApp', browserPlugin: 'showInBrowserPlugin' };
 
-// Strip the heavy `raw` blob from the list view.
+// Strip the heavy `raw` blob from the list view. `fetched` tells the client
+// whether _about ever answered (patch-round scope previews need it).
 function summaryOf(e) {
   const { raw, ...rest } = e;
-  return rest;
+  return { ...rest, fetched: raw != null };
 }
 
 // Validate an optional enum value; '' / null clears it. Throws on bad input.

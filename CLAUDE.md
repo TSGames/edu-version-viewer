@@ -134,7 +134,21 @@ Other: `Dockerfile`, `docker-compose*.yml`, `.github/workflows/ci.yml`
 - **Patch-Runden (security-patch audits)** — **admin only** (viewers get 403,
   no tab/badges). `_about` reports no patch level, so a round is defined by
   manually selected affected **base versions** (`N.M`, plus `unknown`) and an
-  optional `repoTypes` scope, plus free-text `notes` ("Vermerke", e.g. new
+  optional `repoTypes` scope. Further optional scope filters (`inScope()` in
+  `src/audits.js`, mirrored by `clientInScope()` in `public/audits.js` for the
+  form's live count): `excludeHosting` (`cluster`/`docker`/`external`/`unset`),
+  `includeTags`/`excludeTags` (network tags), `components` (`rs2`,
+  `renderservice`, `feature:<id>`, `plugin:<id>`; any must match),
+  `minVersion`/`fixedVersion` (full-version range, only applied when the
+  reported version is at least as precise), `includeIds`/`excludeIds` (manual,
+  exclude wins). Filters only exclude on **known** data: unset hosting,
+  unresolved host, never-fetched `_about` (`fetched: false` in the list view)
+  or an imprecise version keep the instance in scope. An `open` entry that
+  falls out of scope becomes `not-affected` (by `system`, with the reason) and
+  returns to `open` when back in scope; manually set states are never touched.
+  The scope is shown on the detail page and as an `Umfang` CSV column. The
+  detail table has client-only view filters (search, status, type, hosting,
+  edited by me / never edited manually, hide removed). Plus free-text `notes` ("Vermerke", e.g. new
   minimum version, git commit/MR links; URLs rendered clickable, editable
   inline on the detail page while open); each affected instance's status is set
   **manually**: `open` / `patched` / `accepted` / `not-affected`, with comment,

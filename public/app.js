@@ -35,6 +35,7 @@ let view = localStorage.getItem('view') === 'list' ? 'list' : 'cards';
 // same-origin request automatically. We never hold credentials in JS and only
 // track our resolved role.
 let role = null;
+let currentUser = '';
 
 function isAdmin() {
   return role === 'admin';
@@ -789,6 +790,7 @@ function setAdminMsg(msg, isError) {
 
 function showLogin() {
   role = null;
+  currentUser = '';
   els.login.classList.remove('hidden');
   els.logoutBtn.classList.add('hidden');
   els.whoami.textContent = '';
@@ -813,6 +815,7 @@ async function loadRole() {
     if (res.ok) {
       const data = await res.json();
       role = data.role;
+      currentUser = data.user || '';
       els.whoami.textContent = `Angemeldet als ${data.user} (${
         role === 'admin' ? 'Admin' : 'nur Lesen'
       })`;
